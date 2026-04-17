@@ -1,11 +1,9 @@
 export const dynamic = "force-dynamic";
 
-import { Badge } from "@/src/components/ui/Badge";
-import { DataTable } from "@/src/components/ui/DataTable";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { AssetsNewButton } from "@/src/components/features/assets/AssetsNewButton";
+import { AssetsTable } from "@/src/components/features/assets/AssetsTable";
 import { listAssets } from "@/src/server/assets";
-import type { Asset } from "@/src/db/schema";
 
 export default async function AssetsPage() {
   const rows = await listAssets();
@@ -29,26 +27,7 @@ export default async function AssetsPage() {
           description="Assets are created automatically from trades or added manually."
         />
       ) : (
-        <DataTable<Asset>
-          rows={rows}
-          getRowKey={(r) => r.id}
-          columns={[
-            { key: "symbol", header: "Symbol", cell: (r) => r.symbol ?? "—" },
-            { key: "name", header: "Name", cell: (r) => r.name },
-            { key: "type", header: "Type", cell: (r) => r.assetType },
-            { key: "currency", header: "Currency", cell: (r) => r.currency },
-            {
-              key: "active",
-              header: "Status",
-              cell: (r) =>
-                r.isActive ? (
-                  <Badge variant="success">Active</Badge>
-                ) : (
-                  <Badge>Inactive</Badge>
-                ),
-            },
-          ]}
-        />
+        <AssetsTable rows={rows} />
       )}
     </div>
   );

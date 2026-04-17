@@ -3,22 +3,38 @@ export const dynamic = "force-dynamic";
 import { Badge } from "@/src/components/ui/Badge";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
-import { ImportCsvButton } from "@/src/components/features/imports/ImportCsvButton";
-import { listImportBatches } from "@/src/server/imports";
+import { ImportWizardButton } from "@/src/components/features/imports/ImportWizard";
+import { listAuditEvents } from "@/src/server/audit";
+import { listAccounts } from "@/src/server/accounts";
 import { formatDateTime } from "@/src/lib/format";
-import type { TransactionImport } from "@/src/db/schema";
+import type { AuditEvent } from "@/src/db/schema";
 
-function statusVariant(
-  status: string,
-): "success" | "warning" | "danger" | "neutral" {
-  if (status === "completed") return "success";
-  if (status === "failed") return "danger";
-  if (status === "pending") return "warning";
-  return "neutral";
+type ImportSummary = {
+  source: string;
+  accountId: string;
+  inserted: number;
+  insertedTrades: number;
+  insertedCashMovements: number;
+  skippedDuplicates: number;
+  skippedErrors?: number;
+  createdAssets: number;
+};
+
+function parseNext(ev: AuditEvent): ImportSummary | null {
+  if (!ev.nextJson) return null;
+  try {
+    return JSON.parse(ev.nextJson) as ImportSummary;
+  } catch {
+    return null;
+  }
 }
 
 export default async function ImportsPage() {
-  const rows = await listImportBatches();
+  const [{ items }, accounts] = await Promise.all([
+    listAuditEvents({ entityType: "import", limit: 50 }),
+    listAccounts(),
+  ]);
+  const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
 
   return (
     <div className="flex flex-col gap-6 p-8">
@@ -29,39 +45,70 @@ export default async function ImportsPage() {
             CSV import batches — DEGIRO, Binance, Cobas.
           </p>
         </div>
-        <ImportCsvButton />
+        <ImportWizardButton accounts={accounts.map((a) => ({ id: a.id, name: a.name }))} />
       </header>
 
-      {rows.length === 0 ? (
+      {items.length === 0 ? (
         <StatesBlock
           mode="empty"
           title="No imports yet"
-          description="Importers land in the next campaign."
+          description="Upload a CSV to import trades and cash movements."
         />
       ) : (
-        <DataTable<TransactionImport>
-          rows={rows}
+        <DataTable<AuditEvent>
+          rows={items}
           getRowKey={(r) => r.id}
           columns={[
-            { key: "source", header: "Source", cell: (r) => r.format },
             {
-              key: "startedAt",
-              header: "Started",
+              key: "when",
+              header: "When",
               cell: (r) => formatDateTime(r.createdAt),
             },
             {
-              key: "rows",
-              header: "Rows",
-              align: "right",
-              cell: (r) => (
-                <span className="tabular-nums">{r.totalRows}</span>
-              ),
+              key: "source",
+              header: "Source",
+              cell: (r) => {
+                const s = parseNext(r);
+                return s?.source ?? "—";
+              },
             },
             {
-              key: "status",
-              header: "Status",
+              key: "account",
+              header: "Account",
+              cell: (r) => {
+                const s = parseNext(r);
+                const name = s ? accountNames.get(s.accountId) : null;
+                return name ?? "—";
+              },
+            },
+            {
+              key: "counts",
+              header: "Counts",
+              cell: (r) => {
+                const s = parseNext(r);
+                if (!s) return "—";
+                return (
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant="success">{s.inserted} inserted</Badge>
+                    {s.skippedDuplicates > 0 && (
+                      <Badge variant="neutral">
+                        {s.skippedDuplicates} duplicate
+                      </Badge>
+                    )}
+                    {s.createdAssets > 0 && (
+                      <Badge variant="warning">
+                        {s.createdAssets} new asset
+                      </Badge>
+                    )}
+                  </div>
+                );
+              },
+            },
+            {
+              key: "summary",
+              header: "Summary",
               cell: (r) => (
-                <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
+                <span className="text-muted-foreground">{r.summary ?? ""}</span>
               ),
             },
           ]}

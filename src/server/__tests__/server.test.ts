@@ -34,13 +34,11 @@ describe("server read layer — fresh DB", () => {
   });
 
   it("getOverviewKpis returns zeros (fresh DB smoke)", async () => {
-    const kpis = await getOverviewKpis(db);
-    expect(kpis).toEqual({
-      totalNetWorthEur: 0,
-      cashEur: 0,
-      investedEur: 0,
-      unrealizedPnlEur: 0,
-    });
+    const kpis = await getOverviewKpis({ range: "ALL" }, db);
+    expect(kpis.totalNetWorthEur).toBe(0);
+    expect(kpis.cashEur).toBe(0);
+    expect(kpis.investedEur).toBe(0);
+    expect(kpis.unrealizedPnlEur).toBe(0);
   });
 
   it("listImportBatches returns []", async () => {

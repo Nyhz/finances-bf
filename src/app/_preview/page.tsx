@@ -1,4 +1,4 @@
-/* PREVIEW — delete when Phase 3 lands. */
+/* PREVIEW — DELETE IN PHASE 4. Folder is underscore-prefixed so it is excluded from routing. */
 "use client";
 
 import * as React from "react";

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppShell } from "@/src/components/layout/AppShell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,6 +18,23 @@ export const metadata: Metadata = {
   description: "EUR-first personal finances dashboard",
 };
 
+// Applies theme + sensitive state synchronously before paint to avoid FOUC.
+const bootScript = `(() => {
+  try {
+    var d = document.documentElement;
+    var t = localStorage.getItem('theme');
+    if (t !== 'light' && t !== 'dark') {
+      t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    d.setAttribute('data-theme', t);
+    var s = localStorage.getItem('sensitive');
+    d.setAttribute('data-sensitive', s === 'hidden' ? 'hidden' : 'visible');
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.setAttribute('data-sensitive', 'visible');
+  }
+})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,11 +43,15 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      data-theme="dark"
-      data-sensitive="visible"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: bootScript }} />
+      </head>
+      <body className="min-h-full">
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

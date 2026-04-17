@@ -8,6 +8,8 @@ import {
   LayoutDashboard,
   Receipt,
   ScrollText,
+  Settings,
+  Upload,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -24,8 +26,10 @@ const items: NavItem[] = [
   { href: "/accounts", label: "Accounts", icon: Wallet },
   { href: "/assets", label: "Assets", icon: Coins },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/imports", label: "Imports", icon: Upload },
   { href: "/taxes", label: "Taxes", icon: Receipt },
   { href: "/audit", label: "Audit", icon: ScrollText },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 function isActive(pathname: string | null, href: string): boolean {

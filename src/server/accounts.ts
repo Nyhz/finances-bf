@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
-import { accounts, type Account } from "../db/schema";
+import { accounts, dailyBalances, type Account, type DailyBalance } from "../db/schema";
 
 export type AccountWithTotals = Account & {
   totalBalanceEur: number;
@@ -14,6 +14,20 @@ export async function listAccounts(db: DB = defaultDb): Promise<AccountWithTotal
 export async function getAccount(id: string, db: DB = defaultDb): Promise<Account | null> {
   const row = await db.select().from(accounts).where(eq(accounts.id, id)).get();
   return row ?? null;
+}
+
+export const getAccountById = getAccount;
+
+export async function getAccountDailyBalances(
+  accountId: string,
+  db: DB = defaultDb,
+): Promise<DailyBalance[]> {
+  return db
+    .select()
+    .from(dailyBalances)
+    .where(eq(dailyBalances.accountId, accountId))
+    .orderBy(asc(dailyBalances.balanceDate))
+    .all();
 }
 
 export type AccountsSummary = {

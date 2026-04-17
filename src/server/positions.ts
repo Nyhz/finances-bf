@@ -70,6 +70,8 @@ export async function getPositionsByAccount(
   return all.filter((row) => assetIds.has(row.position.assetId));
 }
 
+export const getPositionsForAccount = getPositionsByAccount;
+
 // Re-export a lightweight helper for other server modules that just need totals.
 export async function sumValuationsEur(db: DB = defaultDb): Promise<number> {
   const rows = await listPositions(db);

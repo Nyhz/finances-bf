@@ -1,6 +1,11 @@
-import { and, desc, eq, lt, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, lt, ne, or, type SQL } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
-import { assetTransactions, type AssetTransaction } from "../db/schema";
+import {
+  accountCashMovements,
+  assetTransactions,
+  type AccountCashMovement,
+  type AssetTransaction,
+} from "../db/schema";
 import { decodeCursor, encodeCursor } from "../lib/pagination";
 
 export type ListTransactionsArgs = {
@@ -68,6 +73,134 @@ export async function getTransaction(
     .where(eq(assetTransactions.id, id))
     .get();
   return row ?? null;
+}
+
+export type LedgerEntry =
+  | {
+      kind: "transaction";
+      id: string;
+      occurredAt: number;
+      label: string;
+      amountEur: number;
+      assetId: string;
+      quantity: number;
+      description: string | null;
+      source: AssetTransaction;
+    }
+  | {
+      kind: "cash_movement";
+      id: string;
+      occurredAt: number;
+      label: string;
+      amountEur: number;
+      assetId: null;
+      quantity: null;
+      description: string | null;
+      source: AccountCashMovement;
+    };
+
+export type ListLedgerResult = {
+  items: LedgerEntry[];
+  nextCursor: string | null;
+};
+
+const LEDGER_DEFAULT_LIMIT = 50;
+
+function compareDesc(a: LedgerEntry, b: LedgerEntry): number {
+  if (a.occurredAt !== b.occurredAt) return b.occurredAt - a.occurredAt;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+export async function getLedgerForAccount(
+  accountId: string,
+  args: { cursor?: string; limit?: number } = {},
+  db: DB = defaultDb,
+): Promise<ListLedgerResult> {
+  const limit = args.limit ?? LEDGER_DEFAULT_LIMIT;
+  if (limit <= 0) throw new Error("getLedgerForAccount: limit must be > 0");
+
+  let cursorSortKey: number | undefined;
+  let cursorId: string | undefined;
+  if (args.cursor) {
+    const cur = decodeCursor(args.cursor);
+    cursorSortKey = typeof cur.sortKey === "number" ? cur.sortKey : Number(cur.sortKey);
+    cursorId = cur.id;
+  }
+
+  const txFilters: SQL[] = [eq(assetTransactions.accountId, accountId)];
+  if (cursorSortKey !== undefined && cursorId !== undefined) {
+    txFilters.push(
+      or(
+        lt(assetTransactions.tradedAt, cursorSortKey),
+        and(eq(assetTransactions.tradedAt, cursorSortKey), lt(assetTransactions.id, cursorId)),
+      ) as SQL,
+    );
+  }
+
+  const cmFilters: SQL[] = [
+    eq(accountCashMovements.accountId, accountId),
+    ne(accountCashMovements.movementType, "trade"),
+  ];
+  if (cursorSortKey !== undefined && cursorId !== undefined) {
+    cmFilters.push(
+      or(
+        lt(accountCashMovements.occurredAt, cursorSortKey),
+        and(
+          eq(accountCashMovements.occurredAt, cursorSortKey),
+          lt(accountCashMovements.id, cursorId),
+        ),
+      ) as SQL,
+    );
+  }
+
+  const [txRows, cmRows] = await Promise.all([
+    db
+      .select()
+      .from(assetTransactions)
+      .where(and(...txFilters))
+      .orderBy(desc(assetTransactions.tradedAt), desc(assetTransactions.id))
+      .limit(limit + 1)
+      .all(),
+    db
+      .select()
+      .from(accountCashMovements)
+      .where(and(...cmFilters))
+      .orderBy(desc(accountCashMovements.occurredAt), desc(accountCashMovements.id))
+      .limit(limit + 1)
+      .all(),
+  ]);
+
+  const entries: LedgerEntry[] = [
+    ...txRows.map<LedgerEntry>((r) => ({
+      kind: "transaction",
+      id: r.id,
+      occurredAt: r.tradedAt,
+      label: r.transactionType,
+      amountEur: r.cashImpactEur,
+      assetId: r.assetId,
+      quantity: r.quantity,
+      description: r.notes,
+      source: r,
+    })),
+    ...cmRows.map<LedgerEntry>((r) => ({
+      kind: "cash_movement",
+      id: r.id,
+      occurredAt: r.occurredAt,
+      label: r.movementType,
+      amountEur: r.cashImpactEur,
+      assetId: null,
+      quantity: null,
+      description: r.description,
+      source: r,
+    })),
+  ].sort(compareDesc);
+
+  const hasMore = entries.length > limit;
+  const items = hasMore ? entries.slice(0, limit) : entries;
+  const last = items[items.length - 1];
+  const nextCursor =
+    hasMore && last ? encodeCursor({ id: last.id, sortKey: last.occurredAt }) : null;
+  return { items, nextCursor };
 }
 
 export async function listRecentTransactions(

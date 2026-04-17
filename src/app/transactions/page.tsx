@@ -10,6 +10,8 @@ import { listAccounts } from "@/src/server/accounts";
 import { listAssets } from "@/src/server/assets";
 import { formatEur, formatDateTime } from "@/src/lib/format";
 import type { AssetTransaction } from "@/src/db/schema";
+import { TransactionsNewButton } from "@/src/components/features/transactions/TransactionsNewButton";
+import { DeleteTransactionButton } from "@/src/components/features/transactions/DeleteTransactionButton";
 
 type SearchParams = Promise<{ cursor?: string }>;
 
@@ -34,11 +36,22 @@ export default async function TransactionsPage({
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
-        <p className="text-sm text-muted-foreground">
-          Unified timeline of trades and cash movements.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
+          <p className="text-sm text-muted-foreground">
+            Unified timeline of trades and cash movements.
+          </p>
+        </div>
+        <TransactionsNewButton
+          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
+          assets={assets.map((a) => ({
+            id: a.id,
+            name: a.name,
+            symbol: a.symbol ?? null,
+            currency: a.currency,
+          }))}
+        />
       </header>
 
       {result.items.length === 0 && !cursor ? (
@@ -100,6 +113,12 @@ export default async function TransactionsPage({
               cell: (r) => (
                 <SensitiveValue>{formatEur(r.feesAmountEur)}</SensitiveValue>
               ),
+            },
+            {
+              key: "actions",
+              header: "",
+              align: "right",
+              cell: (r) => <DeleteTransactionButton id={r.id} />,
             },
           ]}
           footer={

@@ -1,3 +1,6 @@
+import yahooFinance from "yahoo-finance2";
+import { toIsoDate } from "./fx";
+
 export type Quote = {
   symbol: string;
   price: number;
@@ -11,11 +14,25 @@ export type HistoricalBar = {
   currency: string;
 };
 
-const NOT_IMPLEMENTED = "pricing.ts not implemented — mission lands later";
-
-/* eslint-disable @typescript-eslint/no-unused-vars */
 export async function fetchQuote(symbol: string): Promise<Quote> {
-  throw new Error(NOT_IMPLEMENTED);
+  const raw = (await yahooFinance.quote(symbol)) as {
+    regularMarketPrice?: number;
+    currency?: string;
+    regularMarketTime?: Date | number;
+  };
+  const price = raw.regularMarketPrice;
+  if (price == null || !Number.isFinite(price)) {
+    throw new Error(`fetchQuote: no regularMarketPrice for ${symbol}`);
+  }
+  const currency = (raw.currency ?? "USD").toUpperCase();
+  const asOfRaw = raw.regularMarketTime;
+  const asOf =
+    asOfRaw instanceof Date
+      ? asOfRaw
+      : typeof asOfRaw === "number"
+        ? new Date(asOfRaw * 1000)
+        : new Date();
+  return { symbol, price, currency, asOf };
 }
 
 export async function fetchHistory(
@@ -23,6 +40,17 @@ export async function fetchHistory(
   from: Date,
   to: Date,
 ): Promise<HistoricalBar[]> {
-  throw new Error(NOT_IMPLEMENTED);
+  const rows = (await yahooFinance.historical(symbol, {
+    period1: from,
+    period2: to,
+    interval: "1d",
+  })) as Array<{ date: Date; close: number | null }>;
+  const currency = "USD";
+  return rows
+    .filter((r): r is { date: Date; close: number } => r.close != null)
+    .map((r) => ({
+      date: toIsoDate(r.date),
+      close: r.close,
+      currency,
+    }));
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */

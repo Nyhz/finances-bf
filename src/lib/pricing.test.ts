@@ -1,19 +1,56 @@
-import { describe, expect, it } from "vitest";
-import * as pricing from "./pricing";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-describe("pricing module shape", () => {
-  it("exports fetchQuote and fetchHistory as async functions", () => {
-    expect(typeof pricing.fetchQuote).toBe("function");
-    expect(typeof pricing.fetchHistory).toBe("function");
+const quoteMock = vi.fn();
+const historicalMock = vi.fn();
+
+vi.mock("yahoo-finance2", () => ({
+  default: {
+    quote: (...args: unknown[]) => quoteMock(...args),
+    historical: (...args: unknown[]) => historicalMock(...args),
+  },
+}));
+
+import { fetchHistory, fetchQuote } from "./pricing";
+
+describe("pricing wrapper", () => {
+  beforeEach(() => {
+    quoteMock.mockReset();
+    historicalMock.mockReset();
   });
 
-  it("fetchQuote rejects with a not-implemented marker (stubbed for future mission)", async () => {
-    await expect(pricing.fetchQuote("AAPL")).rejects.toThrow(/not implemented/);
+  it("fetchQuote maps yahoo-finance2 quote into a Quote shape", async () => {
+    quoteMock.mockResolvedValueOnce({
+      regularMarketPrice: 193.5,
+      currency: "usd",
+      regularMarketTime: new Date("2026-04-18T16:00:00Z"),
+    });
+    const q = await fetchQuote("AAPL");
+    expect(q).toEqual({
+      symbol: "AAPL",
+      price: 193.5,
+      currency: "USD",
+      asOf: new Date("2026-04-18T16:00:00Z"),
+    });
+    expect(quoteMock).toHaveBeenCalledWith("AAPL");
   });
 
-  it("fetchHistory rejects with a not-implemented marker", async () => {
-    await expect(
-      pricing.fetchHistory("AAPL", new Date("2026-01-01"), new Date("2026-02-01")),
-    ).rejects.toThrow(/not implemented/);
+  it("fetchQuote throws when regularMarketPrice is missing", async () => {
+    quoteMock.mockResolvedValueOnce({ currency: "USD" });
+    await expect(fetchQuote("BROKEN")).rejects.toThrow(/regularMarketPrice/);
+  });
+
+  it("fetchHistory filters null closes and formats the date", async () => {
+    historicalMock.mockResolvedValueOnce([
+      { date: new Date("2026-04-17T00:00:00Z"), close: 190 },
+      { date: new Date("2026-04-18T00:00:00Z"), close: null },
+    ]);
+    const bars = await fetchHistory(
+      "AAPL",
+      new Date("2026-04-15"),
+      new Date("2026-04-19"),
+    );
+    expect(bars).toEqual([
+      { date: "2026-04-17", close: 190, currency: "USD" },
+    ]);
   });
 });

@@ -1,0 +1,194 @@
+import { resolve } from "node:path";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { eq, and } from "drizzle-orm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as schema from "../../db/schema";
+import type { DB } from "../../db/client";
+import { syncPrices, type PriceClient } from "../price-sync";
+
+function makeDb(): DB {
+  const sqlite = new Database(":memory:");
+  sqlite.pragma("foreign_keys = ON");
+  const db = drizzle(sqlite, { schema }) as unknown as DB;
+  migrate(db, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+  return db;
+}
+
+function fakeClient(
+  table: Record<string, { price: number; currency: string }>,
+): PriceClient {
+  return {
+    fetchQuote: vi.fn(async (symbol: string) => {
+      const row = table[symbol];
+      if (!row) throw new Error(`no stub for ${symbol}`);
+      return {
+        symbol,
+        price: row.price,
+        currency: row.currency,
+        asOf: new Date("2026-04-18T16:00:00Z"),
+      };
+    }),
+  };
+}
+
+describe("syncPrices", () => {
+  let db: DB;
+  const today = "2026-04-18";
+
+  beforeEach(() => {
+    db = makeDb();
+  });
+
+  it("returns empty summary on a fresh DB (no active assets)", async () => {
+    const client = fakeClient({});
+    const summary = await syncPrices(db, client, today);
+    expect(summary).toEqual({
+      date: today,
+      fetched: 0,
+      skipped: 0,
+      fxFetched: 0,
+      fxSkipped: 0,
+      valuationsUpserted: 0,
+      errors: [],
+    });
+    expect(client.fetchQuote).not.toHaveBeenCalled();
+  });
+
+  it("fetches prices, FX, and valuations; second call same day is idempotent", async () => {
+    await db.insert(schema.assets).values({
+      id: "ast_1",
+      name: "Apple",
+      assetType: "stock",
+      providerSymbol: "AAPL",
+      currency: "USD",
+      isActive: true,
+    }).run();
+    await db.insert(schema.assetPositions).values({
+      id: "pos_1",
+      assetId: "ast_1",
+      quantity: 10,
+      averageCost: 150,
+    }).run();
+
+    const client = fakeClient({
+      AAPL: { price: 200, currency: "USD" },
+      "EURUSD=X": { price: 1.25, currency: "USD" }, // 1 EUR = 1.25 USD -> rateToEur = 0.8
+    });
+
+    const first = await syncPrices(db, client, today);
+    expect(first.fetched).toBe(1);
+    expect(first.fxFetched).toBe(1);
+    expect(first.valuationsUpserted).toBe(1);
+    expect(first.errors).toEqual([]);
+    expect(client.fetchQuote).toHaveBeenCalledTimes(2);
+
+    const priceRows = await db.select().from(schema.priceHistory).all();
+    expect(priceRows).toHaveLength(1);
+    expect(priceRows[0].price).toBe(200);
+    expect(priceRows[0].source).toBe("yahoo");
+    expect(priceRows[0].pricedDateUtc).toBe(today);
+
+    const fxRows = await db.select().from(schema.fxRates).all();
+    expect(fxRows).toHaveLength(1);
+    expect(fxRows[0].currency).toBe("USD");
+    expect(fxRows[0].rateToEur).toBeCloseTo(0.8, 8);
+
+    const valRows = await db.select().from(schema.assetValuations).all();
+    expect(valRows).toHaveLength(1);
+    // unitPriceEur = 200 * 0.8 = 160; marketValueEur = 10 * 160 = 1600
+    expect(valRows[0].unitPriceEur).toBeCloseTo(160, 6);
+    expect(valRows[0].marketValueEur).toBeCloseTo(1600, 6);
+    expect(valRows[0].quantity).toBe(10);
+
+    // Second call: same day, should insert nothing new.
+    const second = await syncPrices(db, client, today);
+    expect(second.fetched).toBe(0);
+    expect(second.fxFetched).toBe(0);
+    expect(second.skipped).toBe(1);
+    expect(second.fxSkipped).toBe(1);
+    expect(second.errors).toEqual([]);
+
+    const priceRowsAfter = await db.select().from(schema.priceHistory).all();
+    expect(priceRowsAfter).toHaveLength(1);
+    const fxRowsAfter = await db.select().from(schema.fxRates).all();
+    expect(fxRowsAfter).toHaveLength(1);
+    const valRowsAfter = await db.select().from(schema.assetValuations).all();
+    expect(valRowsAfter).toHaveLength(1);
+  });
+
+  it("uses the same-day fx_rates row to compute priceEur", async () => {
+    await db.insert(schema.assets).values({
+      id: "ast_2",
+      name: "Example",
+      assetType: "stock",
+      providerSymbol: "X",
+      currency: "USD",
+      isActive: true,
+    }).run();
+
+    const client = fakeClient({
+      X: { price: 50, currency: "USD" },
+      "EURUSD=X": { price: 2, currency: "USD" }, // rateToEur = 0.5
+    });
+    await syncPrices(db, client, today);
+
+    const valRow = await db
+      .select()
+      .from(schema.assetValuations)
+      .where(
+        and(
+          eq(schema.assetValuations.assetId, "ast_2"),
+          eq(schema.assetValuations.valuationDate, today),
+        ),
+      )
+      .get();
+    expect(valRow).toBeTruthy();
+    expect(valRow?.unitPriceEur).toBeCloseTo(25, 6); // 50 * 0.5
+  });
+
+  it("skips inactive assets", async () => {
+    await db.insert(schema.assets).values({
+      id: "ast_3",
+      name: "Old",
+      assetType: "stock",
+      providerSymbol: "OLD",
+      currency: "EUR",
+      isActive: false,
+    }).run();
+    const client = fakeClient({});
+    const summary = await syncPrices(db, client, today);
+    expect(summary.fetched).toBe(0);
+    expect(client.fetchQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe("cron sync-prices route", () => {
+  it("rejects requests without the CRON_SECRET header", async () => {
+    process.env.CRON_SECRET = "test-secret";
+    const { GET, POST } = await import("../../app/api/cron/sync-prices/route");
+
+    const bare = await GET(new Request("http://localhost/api/cron/sync-prices"));
+    expect(bare.status).toBe(401);
+
+    const wrong = await POST(
+      new Request("http://localhost/api/cron/sync-prices", {
+        method: "POST",
+        headers: { "x-cron-secret": "nope" },
+      }),
+    );
+    expect(wrong.status).toBe(401);
+  });
+
+  it("rejects when CRON_SECRET env var is unset (deny-by-default)", async () => {
+    delete process.env.CRON_SECRET;
+    const { GET } = await import("../../app/api/cron/sync-prices/route");
+    const res = await GET(
+      new Request("http://localhost/api/cron/sync-prices", {
+        headers: { "x-cron-secret": "anything" },
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+});

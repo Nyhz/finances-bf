@@ -90,10 +90,10 @@ export async function getOverviewKpis(
 
   let realizedPnlYtdEur: number | null = null;
   try {
-    const { getRealizedGains } = await import("./taxes");
+    const { computeRealizedGainsForYear } = await import("./taxes");
     const year = new Date().getUTCFullYear();
-    const result = await getRealizedGains(year);
-    realizedPnlYtdEur = result.totalRealizedEur;
+    const result = await computeRealizedGainsForYear(year);
+    realizedPnlYtdEur = result.totals.netRealizedEur;
   } catch {
     realizedPnlYtdEur = null;
   }

@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, or, type SQL } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import { auditEvents, type AuditEvent } from "../db/schema";
 import { decodeCursor, encodeCursor } from "../lib/pagination";
@@ -8,6 +8,10 @@ export type ListAuditEventsArgs = {
   limit?: number;
   entityType?: string;
   entityId?: string;
+  action?: string;
+  source?: string;
+  dateFrom?: number;
+  dateTo?: number;
 };
 
 export type ListAuditEventsResult = {
@@ -27,6 +31,10 @@ export async function listAuditEvents(
   const filters: SQL[] = [];
   if (args.entityType) filters.push(eq(auditEvents.entityType, args.entityType));
   if (args.entityId) filters.push(eq(auditEvents.entityId, args.entityId));
+  if (args.action) filters.push(eq(auditEvents.action, args.action));
+  if (args.source) filters.push(eq(auditEvents.source, args.source));
+  if (typeof args.dateFrom === "number") filters.push(gte(auditEvents.createdAt, args.dateFrom));
+  if (typeof args.dateTo === "number") filters.push(lte(auditEvents.createdAt, args.dateTo));
 
   if (args.cursor) {
     const cur = decodeCursor(args.cursor);

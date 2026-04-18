@@ -155,14 +155,27 @@ export function EditAssetModal({
           />
         </Field>
 
-        <Field label="Yahoo / provider symbol" errors={fieldErrors.providerSymbol}>
+        <Field
+          label="Provider symbol"
+          errors={fieldErrors.providerSymbol}
+        >
           <input
             type="text"
             value={form.providerSymbol}
             onChange={(e) => update("providerSymbol", e.target.value)}
             className={inputClass}
             maxLength={64}
+            placeholder={
+              form.assetType === "crypto"
+                ? "CoinGecko coin id (e.g. binancecoin, ethereum)"
+                : "Yahoo ticker (e.g. AAPL, BTC-EUR)"
+            }
           />
+          <span className="text-xs text-muted-foreground">
+            {form.assetType === "crypto"
+              ? "CoinGecko coin id used by the crypto price sync."
+              : "Yahoo Finance ticker used by the daily price sync."}
+          </span>
         </Field>
 
         <label className="flex items-center gap-2 text-sm">

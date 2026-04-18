@@ -97,6 +97,10 @@ export function makeRowFingerprint(input: {
   quantity?: number | null;
   priceNative?: number | null;
   amountNative?: number | null;
+  /** Optional per-row disambiguator for CSVs without per-fill order ids
+   *  (e.g. Binance partial fills at identical price/qty). Stable across
+   *  re-exports as long as the source preserves row order. */
+  rowIndex?: number | null;
 }): string {
   const parts = [
     input.source,
@@ -107,6 +111,7 @@ export function makeRowFingerprint(input: {
     formatNumber(input.quantity),
     formatNumber(input.priceNative),
     formatNumber(input.amountNative),
+    input.rowIndex != null ? String(input.rowIndex) : "",
   ];
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
 }

@@ -22,6 +22,7 @@ import {
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
+import { assetHintKey } from "../lib/imports/_shared";
 import type {
   AssetHint,
   ImportSource,
@@ -99,6 +100,7 @@ function autoCreateAsset(
   hint: AssetHint,
   currency: string,
   source: ImportSource,
+  providerSymbol: string | null = null,
 ): Asset {
   const now = Date.now();
   const id = ulid();
@@ -112,7 +114,7 @@ function autoCreateAsset(
       symbol: hint.symbol ?? null,
       isin: hint.isin ?? null,
       currency,
-      providerSymbol: null,
+      providerSymbol,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -251,7 +253,8 @@ export async function confirmImport(
       },
     };
   }
-  const { source, accountId, csvText, overrides } = parsed.data;
+  const { source, accountId, csvText, overrides, cryptoProviderOverrides } =
+    parsed.data;
 
   const parseResult = runParser(source, csvText);
 
@@ -287,7 +290,16 @@ export async function confirmImport(
             asset = findAsset(tx, row.assetHint);
           }
           if (!asset) {
-            asset = autoCreateAsset(tx, row.assetHint, row.currency, source);
+            const key = assetHintKey(row.assetHint);
+            const providerSymbol =
+              (key && cryptoProviderOverrides?.[key]?.trim()) || null;
+            asset = autoCreateAsset(
+              tx,
+              row.assetHint,
+              row.currency,
+              source,
+              providerSymbol,
+            );
             createdAssets++;
           }
           insertTrade(tx, accountId, asset.id, row, source);

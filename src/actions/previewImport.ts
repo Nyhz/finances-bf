@@ -20,14 +20,21 @@ import type {
   ImportSource,
   ParsedImportRow,
 } from "../lib/imports/types";
+import { searchCoins as defaultSearchCoins } from "../lib/pricing";
+import type { CoinCandidate } from "../lib/pricing";
 
 import {
   previewImportSchema,
+  type CryptoCandidateGroup,
   type PreviewCounts,
   type PreviewPayload,
   type PreviewRow,
   type PreviewRowStatus,
 } from "./previewImport.schema";
+
+export type PreviewImportDeps = {
+  searchCoins?: (query: string) => Promise<CoinCandidate[]>;
+};
 
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
@@ -107,9 +114,51 @@ function toPreviewRow(
   };
 }
 
+async function collectCryptoCandidates(
+  rows: PreviewRow[],
+  searchCoins: (query: string) => Promise<CoinCandidate[]>,
+): Promise<CryptoCandidateGroup[]> {
+  const bySymbol = new Map<string, { symbol: string; symbolKey: string }>();
+  for (const row of rows) {
+    if (row.status !== "needs_asset_creation") continue;
+    if (row.kind !== "trade") continue;
+    const hint = row.assetHint;
+    const symbol = hint?.symbol?.trim();
+    if (!symbol) continue;
+    const key = assetHintKey(hint ?? null);
+    if (!key) continue;
+    if (!bySymbol.has(key)) {
+      bySymbol.set(key, { symbol: symbol.toUpperCase(), symbolKey: key });
+    }
+  }
+  const groups: CryptoCandidateGroup[] = [];
+  for (const { symbol, symbolKey } of bySymbol.values()) {
+    try {
+      const raw = await searchCoins(symbol);
+      const exact = raw.filter((c) => c.symbol.toUpperCase() === symbol);
+      const pool = (exact.length > 0 ? exact : raw).slice(0, 10);
+      const sorted = [...pool].sort((a, b) => {
+        const ra = a.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+        const rb = b.marketCapRank ?? Number.MAX_SAFE_INTEGER;
+        return ra - rb;
+      });
+      groups.push({ symbolKey, symbol, candidates: sorted, error: null });
+    } catch (err) {
+      groups.push({
+        symbolKey,
+        symbol,
+        candidates: [],
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return groups;
+}
+
 export async function previewImport(
   input: unknown,
   db: DB = defaultDb,
+  deps: PreviewImportDeps = {},
 ): Promise<ActionResult<PreviewPayload>> {
   const parsed = previewImportSchema.safeParse(input);
   if (!parsed.success) {
@@ -157,6 +206,14 @@ export async function previewImport(
     ).length,
     errors: parseResult.errors.length,
   };
+  const cryptoCandidates =
+    source === "binance"
+      ? await collectCryptoCandidates(
+          rows,
+          deps.searchCoins ?? defaultSearchCoins,
+        )
+      : [];
+
   return {
     ok: true,
     data: {
@@ -165,6 +222,7 @@ export async function previewImport(
       rows,
       errors: parseResult.errors,
       counts,
+      cryptoCandidates,
     },
   };
 }

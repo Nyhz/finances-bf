@@ -10,7 +10,8 @@ import {
 
 export type PriceFreshness = {
   pricedAt: number;
-  source: "yahoo" | "manual" | "stale";
+  /** Real `price_history.source` (e.g. "yahoo", "coingecko", "yahoo-backfill") or "manual" when an override is set; "stale" when the last fetched price is older than STALE_MS. */
+  source: string;
 } | null;
 
 export type AssetListRow = Asset & {
@@ -36,14 +37,18 @@ export async function listAssetsWithFreshness(
         const symbol = asset.providerSymbol ?? asset.symbol ?? asset.ticker;
         if (symbol) {
           const last = await db
-            .select({ pricedAt: priceHistory.pricedAt })
+            .select({
+              pricedAt: priceHistory.pricedAt,
+              source: priceHistory.source,
+            })
             .from(priceHistory)
             .where(eq(priceHistory.symbol, symbol))
             .orderBy(desc(priceHistory.pricedAt))
             .limit(1)
             .get();
           if (last) {
-            const source = now - last.pricedAt > STALE_MS ? "stale" : "yahoo";
+            const source =
+              now - last.pricedAt > STALE_MS ? "stale" : last.source;
             freshness = { pricedAt: last.pricedAt, source };
           }
         }

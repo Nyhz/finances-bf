@@ -57,6 +57,7 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
   const [preview, setPreview] = React.useState<PreviewPayload | null>(null);
   const [showErrors, setShowErrors] = React.useState(false);
   const [commitResult, setCommitResult] = React.useState<string | null>(null);
+  const [cryptoPicks, setCryptoPicks] = React.useState<Record<string, string>>({});
 
   function reset() {
     setStep("source");
@@ -66,6 +67,7 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
     setError(null);
     setCommitResult(null);
     setShowErrors(false);
+    setCryptoPicks({});
   }
 
   async function handleFile(file: File) {
@@ -85,6 +87,12 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
       return;
     }
     setPreview(res.data);
+    // Seed picks with the top candidate per group so the default path is one-click.
+    const seed: Record<string, string> = {};
+    for (const group of res.data.cryptoCandidates) {
+      if (group.candidates.length > 0) seed[group.symbolKey] = group.candidates[0].id;
+    }
+    setCryptoPicks(seed);
     setStep("preview");
   }
 
@@ -92,7 +100,19 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
     if (!preview) return;
     setLoading(true);
     setError(null);
-    const res = await confirmImport({ source, accountId, csvText });
+    const cryptoProviderOverrides: Record<string, string> = {};
+    for (const [k, v] of Object.entries(cryptoPicks)) {
+      const trimmed = v?.trim();
+      if (trimmed) cryptoProviderOverrides[k] = trimmed;
+    }
+    const res = await confirmImport({
+      source,
+      accountId,
+      csvText,
+      ...(Object.keys(cryptoProviderOverrides).length > 0
+        ? { cryptoProviderOverrides }
+        : {}),
+    });
     setLoading(false);
     if (!res.ok) {
       setError(res.error.message);
@@ -232,6 +252,55 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
               <Badge variant="danger">{preview.counts.errors} errors</Badge>
             )}
           </div>
+          {preview.cryptoCandidates.length > 0 && (
+            <div className="rounded-md border border-border">
+              <div className="border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Map each new crypto asset to its CoinGecko coin so prices can
+                sync. The top result is pre-selected.
+              </div>
+              <ul className="divide-y divide-border">
+                {preview.cryptoCandidates.map((group) => (
+                  <li
+                    key={group.symbolKey}
+                    className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
+                  >
+                    <span className="font-mono text-xs">{group.symbol}</span>
+                    {group.error ? (
+                      <span className="text-xs text-destructive">
+                        Lookup failed: {group.error}
+                      </span>
+                    ) : group.candidates.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">
+                        No CoinGecko match — set providerSymbol manually in
+                        /assets after import.
+                      </span>
+                    ) : (
+                      <select
+                        value={cryptoPicks[group.symbolKey] ?? ""}
+                        onChange={(e) =>
+                          setCryptoPicks((prev) => ({
+                            ...prev,
+                            [group.symbolKey]: e.target.value,
+                          }))
+                        }
+                        className="h-8 min-w-[16rem] rounded-md border border-border bg-background px-2 text-sm"
+                      >
+                        <option value="">Skip — set manually later</option>
+                        {group.candidates.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.symbol}) — {c.id}
+                            {c.marketCapRank != null
+                              ? ` · rank #${c.marketCapRank}`
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {loading ? (
             <StatesBlock mode="loading" />
           ) : (

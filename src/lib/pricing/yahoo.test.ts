@@ -14,9 +14,9 @@ vi.mock("yahoo-finance2", () => ({
   },
 }));
 
-import { fetchHistory, fetchQuote } from "./pricing";
+import { fetchHistory, fetchQuote } from "./yahoo";
 
-describe("pricing wrapper", () => {
+describe("pricing/yahoo", () => {
   beforeEach(() => {
     quoteMock.mockReset();
     historicalMock.mockReset();

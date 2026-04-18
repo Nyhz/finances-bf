@@ -1,20 +1,8 @@
 import YahooFinance from "yahoo-finance2";
-import { toIsoDate } from "./fx";
+import { toIsoDate } from "../fx";
+import type { HistoricalBar, Quote } from "./types";
 
 const yahooFinance = new YahooFinance();
-
-export type Quote = {
-  symbol: string;
-  price: number;
-  currency: string;
-  asOf: Date;
-};
-
-export type HistoricalBar = {
-  date: string; // yyyy-MM-dd
-  close: number;
-  currency: string;
-};
 
 export async function fetchQuote(symbol: string): Promise<Quote> {
   const raw = (await yahooFinance.quote(symbol)) as {

@@ -2,22 +2,31 @@
 
 import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 
-type Point = { date: string; valueEur: number; investedEur: number };
+type Point = {
+  date: string;
+  valueEur: number;
+  investedEur: number;
+  unitPriceEur: number;
+};
 
 const BASELINE = 100;
 const EDGE_PADDING_RATIO = 0.08;
 const MIN_EDGE_PADDING = 0.5;
-const RETURN_PCT_MIN_BASELINE_EUR = 1;
 
 export function PositionSparkline({ data, id }: { data: Point[]; id: string }) {
   if (data.length < 2) {
     return <span className="text-muted-foreground">—</span>;
   }
+  // Pure price performance: normalize each point to the first non-zero unit
+  // price in the window. This reflects the asset's own market move,
+  // independent of the user's buys/sells.
+  const basePrice =
+    data.find((p) => p.unitPriceEur > 0)?.unitPriceEur ?? 0;
+  if (basePrice <= 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
   const series = data.map((p) => ({
-    marketIndex:
-      Math.abs(p.investedEur) >= RETURN_PCT_MIN_BASELINE_EUR
-        ? (p.valueEur / p.investedEur) * BASELINE
-        : BASELINE,
+    marketIndex: (p.unitPriceEur / basePrice) * BASELINE,
   }));
 
   const stroke = "hsl(var(--primary))";

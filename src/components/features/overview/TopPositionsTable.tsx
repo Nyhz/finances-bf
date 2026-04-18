@@ -1,3 +1,4 @@
+import { AssetTypeStripe } from "@/src/components/ui/AssetTypeBadge";
 import { Card } from "@/src/components/ui/Card";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
@@ -38,16 +39,18 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           {
             key: "asset",
             header: "Asset",
-            className: "w-[220px]",
             cell: (r) => {
               const a = r.position.asset;
-              const symbol = a.providerSymbol ?? a.symbol ?? a.name;
+              const symbol = a.symbol ?? a.providerSymbol ?? "";
               return (
-                <div className="flex flex-col leading-tight">
-                  <span className="font-medium tabular-nums">{symbol}</span>
-                  <span className="text-xs text-muted-foreground truncate max-w-[26ch]">
-                    {a.name}
-                  </span>
+                <div className="flex items-stretch gap-3">
+                  <AssetTypeStripe type={a.assetType} />
+                  <div className="flex flex-col leading-tight">
+                    <span className="font-medium">{a.name}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {symbol}
+                    </span>
+                  </div>
                 </div>
               );
             },
@@ -56,13 +59,16 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
             key: "qty",
             header: "Quantity",
             align: "right",
-            cell: (r) => (
-              <span className="tabular-nums">
-                {r.position.position.quantity.toLocaleString("es-ES", {
-                  maximumFractionDigits: 4,
-                })}
-              </span>
-            ),
+            cell: (r) => {
+              const isCrypto = r.position.asset.assetType === "crypto";
+              return (
+                <span className="tabular-nums">
+                  {r.position.position.quantity.toLocaleString("es-ES", {
+                    maximumFractionDigits: isCrypto ? 8 : 4,
+                  })}
+                </span>
+              );
+            },
           },
           {
             key: "avgBuy",

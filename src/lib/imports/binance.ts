@@ -102,6 +102,10 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       side,
       quantity: executed.value,
       priceNative: price,
+      // Binance CSVs lack a per-fill order id; include the CSV row position so
+      // two real partial fills at the same date/price/qty don't collapse to
+      // the same fingerprint. Binance exports are order-stable across re-runs.
+      rowIndex: idx,
     });
     out.push({
       kind: "trade",
@@ -118,29 +122,37 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       fees: tradeFees,
     });
 
-    // Fee paid in a different coin → emit a separate fee cash movement so the
-    // ledger reflects the additional debit.
+    // Fee paid in a different coin (typically BNB on Binance) → emit a
+    // zero-price sell of that coin so the asset position decrements. Recording
+    // it as a cash movement would require an FX rate for a crypto, which the
+    // fiat fx table cannot provide. The original fee is preserved in rawRow
+    // for audit.
     if (!feeInQuote && fee.value != null && fee.value !== 0) {
       const feeAssetHint = { symbol: feeCoin };
+      const feeQty = Math.abs(fee.value);
       const feeFingerprint = makeRowFingerprint({
         source: SOURCE,
         accountHint,
         tradeDate,
         assetHint: assetHintKey(feeAssetHint),
-        side: "fee",
-        amountNative: fee.value,
+        side: "fee-disposal",
+        quantity: feeQty,
+        priceNative: 0,
+        rowIndex: idx,
       });
       out.push({
-        kind: "cash_movement",
+        kind: "trade",
         source: SOURCE,
         tradeDate,
         accountHint,
         rowFingerprint: feeFingerprint,
         rawRow: rec,
-        movement: "fee",
-        amountNative: -Math.abs(fee.value),
-        currency: feeCoin,
         assetHint: feeAssetHint,
+        side: "sell",
+        quantity: feeQty,
+        priceNative: 0,
+        currency: "EUR",
+        fees: null,
       });
     }
 

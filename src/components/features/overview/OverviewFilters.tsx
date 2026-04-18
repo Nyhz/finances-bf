@@ -42,12 +42,11 @@ export function OverviewFilters({ accounts, range, accountIds }: Props) {
     [update],
   );
 
-  const toggleAccount = React.useCallback(
+  // Single-select: clicking the active account toggles it off (back to "All"),
+  // clicking another replaces the selection.
+  const selectAccount = React.useCallback(
     (id: string) => {
-      const selected = new Set(accountIds);
-      if (selected.has(id)) selected.delete(id);
-      else selected.add(id);
-      setAccounts([...selected]);
+      setAccounts(accountIds[0] === id ? [] : [id]);
     },
     [accountIds, setAccounts],
   );
@@ -75,12 +74,12 @@ export function OverviewFilters({ accounts, range, accountIds }: Props) {
           All
         </button>
         {accounts.map((a) => {
-          const active = accountIds.includes(a.id);
+          const active = accountIds[0] === a.id;
           return (
             <button
               key={a.id}
               type="button"
-              onClick={() => toggleAccount(a.id)}
+              onClick={() => selectAccount(a.id)}
               aria-pressed={active}
               className={cn(
                 "rounded-md px-3 py-1 text-xs font-medium transition-colors",

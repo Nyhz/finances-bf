@@ -44,13 +44,23 @@ export default async function TransactionsPage({
           </p>
         </div>
         <TransactionsNewButton
-          accounts={accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
+          accounts={accounts
+            .filter((a) => a.accountType !== "savings")
+            .map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
           assets={assets.map((a) => ({
             id: a.id,
             name: a.name,
             symbol: a.symbol ?? null,
             currency: a.currency,
           }))}
+          cashAccounts={accounts
+            .filter((a) => a.accountType === "savings")
+            .map((a) => ({
+              id: a.id,
+              name: a.name,
+              currency: a.currency,
+              accountType: a.accountType,
+            }))}
         />
       </header>
 

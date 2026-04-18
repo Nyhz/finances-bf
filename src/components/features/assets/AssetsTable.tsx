@@ -21,10 +21,15 @@ function FreshnessCell({ row }: { row: AssetListRow }) {
     return <span className="text-xs text-muted-foreground">No price</span>;
   }
   const when = new Date(f.pricedAt).toISOString().slice(0, 10);
-  const variant =
-    f.source === "yahoo" ? "success" : f.source === "manual" ? "neutral" : "danger";
-  const label =
-    f.source === "yahoo" ? "Yahoo" : f.source === "manual" ? "Manual" : "Stale";
+  const KNOWN: Record<string, { label: string; variant: "success" | "neutral" | "warning" }> = {
+    yahoo: { label: "Yahoo", variant: "success" },
+    "yahoo-backfill": { label: "Yahoo", variant: "success" },
+    coingecko: { label: "CoinGecko", variant: "success" },
+    manual: { label: "Manual", variant: "neutral" },
+  };
+  const known = KNOWN[f.source];
+  const label = known?.label ?? f.source;
+  const variant = known?.variant ?? "warning";
   return (
     <span className="inline-flex items-center gap-2">
       <Badge variant={variant}>{label}</Badge>

@@ -7,12 +7,18 @@ import {
   assets,
   fxRates,
   priceHistory,
+  type Asset,
 } from "../db/schema";
 import { resolveFxRate, toIsoDate, type FxLookup } from "./fx";
-import type { Quote } from "./pricing";
+import type { PricingProviderName, Quote } from "./pricing";
 
 export type PriceClient = {
   fetchQuote: (symbol: string) => Promise<Quote>;
+};
+
+export type PriceClients = {
+  yahoo: PriceClient;
+  coingecko: PriceClient;
 };
 
 export type SyncError = {
@@ -31,6 +37,10 @@ export type SyncSummary = {
   valuationsUpserted: number;
   errors: SyncError[];
 };
+
+function providerFor(asset: Pick<Asset, "assetType">): PricingProviderName {
+  return asset.assetType === "crypto" ? "coingecko" : "yahoo";
+}
 
 function resolveSymbol(
   asset: { providerSymbol: string | null; symbol: string | null; ticker: string | null },
@@ -53,7 +63,7 @@ function roundUnitPrice(n: number): number {
 
 export async function syncPrices(
   db: DB,
-  client: PriceClient,
+  clients: PriceClients,
   today: string = toIsoDate(new Date()),
 ): Promise<SyncSummary> {
   const summary: SyncSummary = {
@@ -75,16 +85,23 @@ export async function syncPrices(
   // Quote currency per asset, populated as we fetch. Authoritative source of
   // truth for FX conversion — the asset row's `currency` reflects trade
   // currency (as imported), which may differ from the Yahoo quote currency
-  // for ADRs, dual-listed funds, etc.
+  // for ADRs, dual-listed funds, etc. For crypto assets the CoinGecko path
+  // always returns EUR.
   const quoteCurrencyByAsset = new Map<string, string>();
+  const providerByAsset = new Map<string, PricingProviderName>();
 
   // 1. Asset prices
   for (const asset of activeAssets) {
+    const provider = providerFor(asset);
+    providerByAsset.set(asset.id, provider);
     const symbol = resolveSymbol(asset);
     if (!symbol) {
       summary.errors.push({
         assetId: asset.id,
-        message: "no provider symbol / symbol / ticker set",
+        message:
+          provider === "coingecko"
+            ? "crypto asset missing providerSymbol (CoinGecko coin id)"
+            : "no provider symbol / symbol / ticker set",
       });
       continue;
     }
@@ -95,35 +112,52 @@ export async function syncPrices(
         and(
           eq(priceHistory.symbol, symbol),
           eq(priceHistory.pricedDateUtc, today),
-          eq(priceHistory.source, "yahoo"),
+          eq(priceHistory.source, provider),
         ),
       )
       .get();
     if (existing) {
-      // Already priced today; fall back to the asset row's currency since we
-      // no longer have a fresh quote to read.
-      if (asset.currency) {
-        quoteCurrencyByAsset.set(asset.id, asset.currency.toUpperCase());
-      }
+      quoteCurrencyByAsset.set(
+        asset.id,
+        (provider === "coingecko" ? "EUR" : asset.currency ?? "EUR").toUpperCase(),
+      );
       summary.skipped++;
       continue;
     }
     try {
-      const quote = await client.fetchQuote(symbol);
+      const quote = await clients[provider].fetchQuote(symbol);
       quoteCurrencyByAsset.set(asset.id, quote.currency.toUpperCase());
-      await db
-        .insert(priceHistory)
-        .values({
-          id: ulid(),
-          symbol,
-          price: quote.price,
-          pricedAt: quote.asOf.getTime(),
-          pricedDateUtc: today,
-          source: "yahoo",
-          createdAt: Date.now(),
-        })
-        .run();
-      summary.fetched++;
+      // Skip the insert when the quote timestamp matches an existing bar —
+      // Yahoo returns Friday's `regularMarketTime` on weekends/holidays, so
+      // we'd otherwise clutter price_history with duplicate rows.
+      const duplicate = await db
+        .select({ id: priceHistory.id })
+        .from(priceHistory)
+        .where(
+          and(
+            eq(priceHistory.symbol, symbol),
+            eq(priceHistory.source, provider),
+            eq(priceHistory.pricedAt, quote.asOf.getTime()),
+          ),
+        )
+        .get();
+      if (duplicate) {
+        summary.skipped++;
+      } else {
+        await db
+          .insert(priceHistory)
+          .values({
+            id: ulid(),
+            symbol,
+            price: quote.price,
+            pricedAt: quote.asOf.getTime(),
+            pricedDateUtc: today,
+            source: provider,
+            createdAt: Date.now(),
+          })
+          .run();
+        summary.fetched++;
+      }
     } catch (err) {
       summary.errors.push({
         assetId: asset.id,
@@ -133,7 +167,8 @@ export async function syncPrices(
     }
   }
 
-  // 2. FX rates — one row per non-EUR quote currency seen in this run.
+  // 2. FX rates — one row per non-EUR quote currency seen from the Yahoo path.
+  // CoinGecko quotes are always EUR so they contribute nothing here.
   const currencySet = new Set<string>();
   for (const ccy of quoteCurrencyByAsset.values()) {
     if (ccy && ccy !== "EUR") currencySet.add(ccy);
@@ -150,7 +185,7 @@ export async function syncPrices(
     }
     const pair = `EUR${ccy}=X`;
     try {
-      const quote = await client.fetchQuote(pair);
+      const quote = await clients.yahoo.fetchQuote(pair);
       if (!quote.price || quote.price <= 0) {
         throw new Error(`invalid FX quote for ${pair}: ${quote.price}`);
       }
@@ -201,6 +236,7 @@ export async function syncPrices(
   for (const asset of activeAssets) {
     const symbol = resolveSymbol(asset);
     if (!symbol) continue;
+    const provider = providerByAsset.get(asset.id) ?? providerFor(asset);
     const priceRow = await db
       .select()
       .from(priceHistory)
@@ -208,6 +244,7 @@ export async function syncPrices(
         and(
           eq(priceHistory.symbol, symbol),
           eq(priceHistory.pricedDateUtc, today),
+          eq(priceHistory.source, provider),
         ),
       )
       .get();
@@ -215,7 +252,8 @@ export async function syncPrices(
 
     try {
       const quoteCurrency =
-        quoteCurrencyByAsset.get(asset.id) ?? asset.currency;
+        quoteCurrencyByAsset.get(asset.id) ??
+        (provider === "coingecko" ? "EUR" : asset.currency);
       const fx = await resolveFxRate(quoteCurrency, today, fxLookup);
       const unitPriceEur = roundUnitPrice(priceRow.price * fx.rate);
       const positionRow = await db

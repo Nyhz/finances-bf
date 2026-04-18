@@ -241,3 +241,125 @@ describe("confirmImport", () => {
     expect(trades.length).toBe(0);
   });
 });
+
+const BINANCE_CSV = `"Date(UTC)","Pair","Side","Price","Executed","Amount","Fee"
+"2026-03-01 10:00:00","BNBEUR","BUY","650","0.1BNB","65EUR","0.00001BNB"
+"2026-03-02 10:00:00","ETHEUR","BUY","3000","0.01ETH","30EUR","0.00002BNB"
+`;
+
+describe("previewImport — Binance crypto candidate lookup", () => {
+  let db: DB;
+  let accountId: string;
+
+  beforeEach(async () => {
+    db = makeDb();
+    accountId = await setupAccount(db);
+  });
+
+  it("returns CoinGecko candidate groups for each unresolved crypto symbol", async () => {
+    const searchCoins = vi.fn(async (query: string) => {
+      if (query === "BNB") {
+        return [
+          {
+            id: "binancecoin",
+            symbol: "BNB",
+            name: "BNB",
+            marketCapRank: 4,
+            thumb: null,
+          },
+        ];
+      }
+      if (query === "ETH") {
+        return [
+          {
+            id: "ethereum",
+            symbol: "ETH",
+            name: "Ethereum",
+            marketCapRank: 2,
+            thumb: null,
+          },
+          {
+            id: "ethereum-classic",
+            symbol: "ETC",
+            name: "Ethereum Classic",
+            marketCapRank: 30,
+            thumb: null,
+          },
+        ];
+      }
+      return [];
+    });
+
+    const res = await previewImport(
+      { source: "binance", accountId, csvText: BINANCE_CSV },
+      db,
+      { searchCoins },
+    );
+    if (!res.ok) throw new Error("preview failed");
+    const groups = res.data.cryptoCandidates;
+    const byKey = new Map(groups.map((g) => [g.symbol, g]));
+    expect(byKey.get("BNB")?.candidates[0].id).toBe("binancecoin");
+    // Exact-symbol match filter drops ETC from the ETH group.
+    expect(byKey.get("ETH")?.candidates.map((c) => c.id)).toEqual(["ethereum"]);
+    expect(searchCoins).toHaveBeenCalledWith("BNB");
+    expect(searchCoins).toHaveBeenCalledWith("ETH");
+  });
+
+  it("surfaces a per-group error when the CoinGecko lookup throws", async () => {
+    const searchCoins = vi.fn(async () => {
+      throw new Error("coingecko 429 rate limited");
+    });
+    const res = await previewImport(
+      { source: "binance", accountId, csvText: BINANCE_CSV },
+      db,
+      { searchCoins },
+    );
+    if (!res.ok) throw new Error("preview failed");
+    for (const g of res.data.cryptoCandidates) {
+      expect(g.candidates).toEqual([]);
+      expect(g.error).toMatch(/429/);
+    }
+  });
+});
+
+describe("confirmImport — cryptoProviderOverrides", () => {
+  let db: DB;
+  let accountId: string;
+
+  beforeEach(async () => {
+    db = makeDb();
+    accountId = await setupAccount(db, 1000);
+  });
+
+  it("writes providerSymbol on auto-created assets when an override is supplied", async () => {
+    // Resolve the symbolKey the parser will produce for a BNB hint.
+    const { parseBinanceCsv } = await import("../../lib/imports/binance");
+    const { assetHintKey } = await import("../../lib/imports/_shared");
+    const parsed = parseBinanceCsv(BINANCE_CSV);
+    const bnbTrade = parsed.rows.find(
+      (r) => r.kind === "trade" && r.assetHint.symbol === "BNB",
+    );
+    if (!bnbTrade || bnbTrade.kind !== "trade") throw new Error("no bnb trade");
+    const bnbKey = assetHintKey(bnbTrade.assetHint);
+    expect(bnbKey).toBeTruthy();
+
+    const res = await confirmImport(
+      {
+        source: "binance",
+        accountId,
+        csvText: BINANCE_CSV,
+        cryptoProviderOverrides: { [bnbKey!]: "binancecoin" },
+      },
+      db,
+    );
+    if (!res.ok) throw new Error(`confirm failed: ${res.error.message}`);
+
+    const bnb = db
+      .select()
+      .from(schema.assets)
+      .where(eq(schema.assets.symbol, "BNB"))
+      .get();
+    expect(bnb?.providerSymbol).toBe("binancecoin");
+    expect(bnb?.assetType).toBe("crypto");
+  });
+});

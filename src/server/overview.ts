@@ -4,6 +4,7 @@ import {
   accounts,
   assetTransactions,
   assetValuations,
+  assets,
   type Account,
 } from "../db/schema";
 import { listAccounts, getAccountsSummary } from "./accounts";
@@ -211,12 +212,15 @@ export async function getNetWorthSeries(
   const filteringAccounts =
     filters.accountIds != null && filters.accountIds.length > 0;
 
+  const startIso = start ? toIsoDate(start) : null;
   const conds = [lte(assetValuations.valuationDate, toIsoDate(end))];
-  if (start) conds.push(gte(assetValuations.valuationDate, toIsoDate(start)));
+  if (startIso) conds.push(gte(assetValuations.valuationDate, startIso));
+  let scopeAssetIdList: string[] | null = null;
   if (filteringAccounts) {
     const scopeAssetIds = await assetIdsForAccounts(filters.accountIds!, db);
     if (scopeAssetIds.size === 0) return [];
-    conds.push(inArray(assetValuations.assetId, [...scopeAssetIds]));
+    scopeAssetIdList = [...scopeAssetIds];
+    conds.push(inArray(assetValuations.assetId, scopeAssetIdList));
   }
 
   const rows = await db
@@ -226,12 +230,86 @@ export async function getNetWorthSeries(
     .orderBy(asc(assetValuations.valuationDate))
     .all();
 
+  // Carry-in baseline: for each asset that had a valuation on or before the
+  // range start, seed a synthetic row at `startIso` so the forward-fill
+  // doesn't start from zero. Without this, an asset bought pre-range with a
+  // stable valuation shows up as 0 until its next in-range valuation row.
+  const carryIns: typeof rows = [];
+  if (startIso) {
+    const seedAssetIds =
+      scopeAssetIdList ??
+      [...new Set(rows.map((r) => r.assetId))];
+    for (const assetId of seedAssetIds) {
+      const earliestInRange = rows.find((r) => r.assetId === assetId);
+      if (earliestInRange && earliestInRange.valuationDate === startIso) continue;
+      const prior = await db
+        .select()
+        .from(assetValuations)
+        .where(
+          and(
+            eq(assetValuations.assetId, assetId),
+            lte(assetValuations.valuationDate, startIso),
+          ),
+        )
+        .orderBy(desc(assetValuations.valuationDate))
+        .limit(1)
+        .get();
+      if (prior) {
+        carryIns.push({ ...prior, valuationDate: startIso });
+      }
+    }
+  }
+  const allRows = [...carryIns, ...rows];
+
+  // Figure out whether any asset in scope trades weekends (crypto). If none
+  // do, Sat/Sun dates in the series are noise — either forward-filled stock
+  // values (flat) or empty gaps — and we drop them so the chart stays at one
+  // point per trading day.
+  const scopeAssetIds = new Set(allRows.map((r) => r.assetId));
+  let includeWeekends = false;
+  if (scopeAssetIds.size > 0) {
+    const types = await db
+      .select({ assetType: assets.assetType })
+      .from(assets)
+      .where(inArray(assets.id, [...scopeAssetIds]))
+      .all();
+    includeWeekends = types.some((t) => t.assetType === "crypto");
+  }
+
+  function keepDate(iso: string): boolean {
+    if (includeWeekends) return true;
+    const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+    return day !== 0 && day !== 6;
+  }
+
+  // Group valuations per asset so we can forward-fill across gaps (typical
+  // for stock/ETF weekends — Yahoo has no Sat/Sun close, but crypto does, so
+  // without forward-fill the Sat/Sun totals collapse to crypto-only).
+  const datesSet = new Set<string>();
+  const perAsset = new Map<string, Array<{ date: string; valueEur: number }>>();
+  for (const row of allRows) {
+    if (!keepDate(row.valuationDate)) continue;
+    datesSet.add(row.valuationDate);
+    const list = perAsset.get(row.assetId) ?? [];
+    list.push({ date: row.valuationDate, valueEur: row.marketValueEur });
+    perAsset.set(row.assetId, list);
+  }
+  const orderedDates = [...datesSet].sort();
   const byDate = new Map<string, number>();
-  for (const row of rows) {
-    byDate.set(
-      row.valuationDate,
-      (byDate.get(row.valuationDate) ?? 0) + row.marketValueEur,
-    );
+  for (const [, series] of perAsset) {
+    series.sort((a, b) => a.date.localeCompare(b.date));
+    let idx = 0;
+    let last = 0;
+    let seen = false;
+    for (const date of orderedDates) {
+      while (idx < series.length && series[idx].date <= date) {
+        last = series[idx].valueEur;
+        seen = true;
+        idx++;
+      }
+      if (!seen) continue; // asset hasn't had its first valuation yet
+      byDate.set(date, (byDate.get(date) ?? 0) + last);
+    }
   }
 
   // Cumulative invested EUR per date. Invested_t = cost_basis_bought_up_to_t
@@ -287,7 +365,12 @@ export type TopPositionRow = {
   pnlPct: number | null;
   unitPriceEur: number | null;
   averageCostEur: number;
-  sparkline: Array<{ date: string; valueEur: number; investedEur: number }>;
+  sparkline: Array<{
+    date: string;
+    valueEur: number;
+    investedEur: number;
+    unitPriceEur: number;
+  }>;
 };
 
 export async function getTopPositions(
@@ -383,7 +466,12 @@ export async function getTopPositions(
 
   const valuationsByAsset = new Map<
     string,
-    Array<{ date: string; valueEur: number; investedEur: number }>
+    Array<{
+      date: string;
+      valueEur: number;
+      investedEur: number;
+      unitPriceEur: number;
+    }>
   >();
   if (assetIds.length > 0) {
     const conds = [
@@ -420,6 +508,7 @@ export async function getTopPositions(
         date: v.valuationDate,
         valueEur: v.marketValueEur,
         investedEur: runningInvestedByAsset.get(v.assetId) ?? 0,
+        unitPriceEur: v.unitPriceEur,
       });
       valuationsByAsset.set(v.assetId, list);
     }

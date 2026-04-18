@@ -1,9 +1,12 @@
 import { db } from "../src/db/client";
-import { fetchQuote } from "../src/lib/pricing";
+import { yahooProvider, coingeckoProvider } from "../src/lib/pricing";
 import { syncPrices } from "../src/lib/price-sync";
 
 async function main() {
-  const summary = await syncPrices(db, { fetchQuote });
+  const summary = await syncPrices(db, {
+    yahoo: { fetchQuote: yahooProvider.fetchQuote },
+    coingecko: { fetchQuote: coingeckoProvider.fetchQuote },
+  });
   console.log(JSON.stringify(summary, null, 2));
 }
 

@@ -80,7 +80,7 @@ No cloud. No auth. No subscription. One SQLite file, one cron entry, a Yahoo Fin
 - **User crontab** — `scripts/cron-sync-prices.sh` sources `.env.local` and curls the sync route. Installed as:
   ```cron
   CRON_TZ=Europe/Madrid
-  0 23 * * 1-5 /path/to/scripts/cron-sync-prices.sh >> ~/.finances/logs/cron.log 2>&1
+  0 23 * * * /path/to/scripts/cron-sync-prices.sh >> ~/.finances/logs/cron.log 2>&1
   ```
 - **launchd-friendly** — The companion `finances-service.sh` + plist run `pnpm start` on port 3200 with a SIGTERM-safe child reaper. xbar plugin polls the service every 5 seconds and exposes Start / Stop / Dev ↔ Prod / Restart
 
@@ -397,15 +397,17 @@ Open [http://localhost:3200](http://localhost:3200). Create a savings account (o
 
 ### Daily Price Sync
 
-Install the cron entry (Madrid timezone, weekdays 23:00):
+Install the cron entry (Madrid timezone, every day at 23:00 — crypto trades 24/7, weekday-only would leave Sat/Sun stale):
 
 ```bash
 (crontab -l 2>/dev/null; cat <<'EOF'
 CRON_TZ=Europe/Madrid
-0 23 * * 1-5 /absolute/path/to/scripts/cron-sync-prices.sh >> ~/.finances/logs/cron.log 2>&1
+0 23 * * * /absolute/path/to/scripts/cron-sync-prices.sh >> ~/.finances/logs/cron.log 2>&1
 EOF
 ) | crontab -
 ```
+
+Weekend runs against Yahoo-tracked assets are harmless: the sync skips the insert when the returned quote timestamp matches the last bar (stocks/ETFs return Friday's close on Saturday — one `price_history` row per actual trading day, no duplicates).
 
 ### Historical Backfill (one-shot)
 

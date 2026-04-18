@@ -6,7 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
-import { syncPrices, type PriceClient } from "../price-sync";
+import { syncPrices, type PriceClient, type PriceClients } from "../price-sync";
 
 function makeDb(): DB {
   const sqlite = new Database(":memory:");
@@ -33,6 +33,13 @@ function fakeClient(
   };
 }
 
+function asClients(
+  yahoo: PriceClient,
+  coingecko: PriceClient = fakeClient({}),
+): PriceClients {
+  return { yahoo, coingecko };
+}
+
 describe("syncPrices", () => {
   let db: DB;
   const today = "2026-04-18";
@@ -43,7 +50,7 @@ describe("syncPrices", () => {
 
   it("returns empty summary on a fresh DB (no active assets)", async () => {
     const client = fakeClient({});
-    const summary = await syncPrices(db, client, today);
+    const summary = await syncPrices(db, asClients(client), today);
     expect(summary).toEqual({
       date: today,
       fetched: 0,
@@ -77,7 +84,7 @@ describe("syncPrices", () => {
       "EURUSD=X": { price: 1.25, currency: "USD" }, // 1 EUR = 1.25 USD -> rateToEur = 0.8
     });
 
-    const first = await syncPrices(db, client, today);
+    const first = await syncPrices(db, asClients(client), today);
     expect(first.fetched).toBe(1);
     expect(first.fxFetched).toBe(1);
     expect(first.valuationsUpserted).toBe(1);
@@ -103,7 +110,7 @@ describe("syncPrices", () => {
     expect(valRows[0].quantity).toBe(10);
 
     // Second call: same day, should insert nothing new.
-    const second = await syncPrices(db, client, today);
+    const second = await syncPrices(db, asClients(client), today);
     expect(second.fetched).toBe(0);
     expect(second.fxFetched).toBe(0);
     expect(second.skipped).toBe(1);
@@ -132,7 +139,7 @@ describe("syncPrices", () => {
       X: { price: 50, currency: "USD" },
       "EURUSD=X": { price: 2, currency: "USD" }, // rateToEur = 0.5
     });
-    await syncPrices(db, client, today);
+    await syncPrices(db, asClients(client), today);
 
     const valRow = await db
       .select()
@@ -148,6 +155,70 @@ describe("syncPrices", () => {
     expect(valRow?.unitPriceEur).toBeCloseTo(25, 6); // 50 * 0.5
   });
 
+  it("routes crypto assets to CoinGecko (EUR native, no FX step)", async () => {
+    await db.insert(schema.assets).values({
+      id: "ast_crypto",
+      name: "BNB",
+      assetType: "crypto",
+      symbol: "BNB",
+      providerSymbol: "binancecoin",
+      currency: "EUR",
+      isActive: true,
+    }).run();
+    await db.insert(schema.assetPositions).values({
+      id: "pos_crypto",
+      assetId: "ast_crypto",
+      quantity: 0.5,
+      averageCost: 600,
+    }).run();
+
+    const yahoo = fakeClient({});
+    const coingecko = fakeClient({
+      binancecoin: { price: 650, currency: "EUR" },
+    });
+
+    const summary = await syncPrices(db, { yahoo, coingecko }, today);
+    expect(summary.fetched).toBe(1);
+    expect(summary.fxFetched).toBe(0);
+    expect(summary.valuationsUpserted).toBe(1);
+    expect(summary.errors).toEqual([]);
+    expect(yahoo.fetchQuote).not.toHaveBeenCalled();
+    expect(coingecko.fetchQuote).toHaveBeenCalledWith("binancecoin");
+
+    const priceRows = await db.select().from(schema.priceHistory).all();
+    expect(priceRows).toHaveLength(1);
+    expect(priceRows[0].source).toBe("coingecko");
+    expect(priceRows[0].price).toBe(650);
+
+    const fxRows = await db.select().from(schema.fxRates).all();
+    expect(fxRows).toHaveLength(0);
+
+    const valRows = await db.select().from(schema.assetValuations).all();
+    expect(valRows[0].unitPriceEur).toBeCloseTo(650, 6);
+    expect(valRows[0].marketValueEur).toBeCloseTo(325, 2);
+    expect(valRows[0].priceSource).toBe("coingecko");
+  });
+
+  it("reports an error when a crypto asset is missing its providerSymbol", async () => {
+    await db.insert(schema.assets).values({
+      id: "ast_crypto_bad",
+      name: "Unknown crypto",
+      assetType: "crypto",
+      symbol: null,
+      providerSymbol: null,
+      currency: "EUR",
+      isActive: true,
+    }).run();
+    const summary = await syncPrices(
+      db,
+      { yahoo: fakeClient({}), coingecko: fakeClient({}) },
+      today,
+    );
+    expect(summary.fetched).toBe(0);
+    expect(summary.errors).toHaveLength(1);
+    expect(summary.errors[0].message).toMatch(/providerSymbol/);
+  });
+
   it("skips inactive assets", async () => {
     await db.insert(schema.assets).values({
       id: "ast_3",
@@ -158,7 +229,7 @@ describe("syncPrices", () => {
       isActive: false,
     }).run();
     const client = fakeClient({});
-    const summary = await syncPrices(db, client, today);
+    const summary = await syncPrices(db, asClients(client), today);
     expect(summary.fetched).toBe(0);
     expect(client.fetchQuote).not.toHaveBeenCalled();
   });

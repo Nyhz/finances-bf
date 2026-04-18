@@ -323,6 +323,7 @@ finances/
 DB_PATH=./data/finances.db
 CRON_SECRET=<random>
 YAHOO_USER_AGENT=<optional override>
+COINGECKO_API_KEY=<optional, enables crypto price sync>
 PORT=3200
 ```
 

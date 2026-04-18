@@ -35,16 +35,20 @@ describe("parseBinanceCsv", () => {
     expect(ethBtc).toBeDefined();
   });
 
-  it("emits a separate fee cash_movement when fee coin differs from quote", () => {
+  it("emits a zero-price sell trade of the fee coin when fee coin differs from quote", () => {
     const { rows } = parseBinanceCsv(fixture);
-    const feeRows = rows.filter(
-      (r) => r.kind === "cash_movement" && r.movement === "fee",
+    const feeDisposals = rows.filter(
+      (r) =>
+        r.kind === "trade" &&
+        r.side === "sell" &&
+        r.priceNative === 0 &&
+        r.assetHint.symbol === "SOL",
     );
-    expect(feeRows).toHaveLength(1);
-    expect(feeRows[0].kind).toBe("cash_movement");
-    if (feeRows[0].kind === "cash_movement") {
-      expect(feeRows[0].currency).toBe("SOL");
-      expect(feeRows[0].amountNative).toBeLessThan(0);
+    expect(feeDisposals).toHaveLength(1);
+    const row = feeDisposals[0];
+    if (row.kind === "trade") {
+      expect(row.currency).toBe("EUR");
+      expect(row.quantity).toBeGreaterThan(0);
     }
   });
 

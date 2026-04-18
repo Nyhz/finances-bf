@@ -11,10 +11,13 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-import { createAsset, createAssetSchema } from "../createAsset";
-import { updateAsset, updateAssetSchema } from "../updateAsset";
+import { createAsset } from "../createAsset";
+import { createAssetSchema } from "../createAsset.schema";
+import { updateAsset } from "../updateAsset";
+import { updateAssetSchema } from "../updateAsset.schema";
 import { deactivateAsset } from "../deactivateAsset";
-import { setManualPrice, setManualPriceSchema } from "../setManualPrice";
+import { setManualPrice } from "../setManualPrice";
+import { setManualPriceSchema } from "../setManualPrice.schema";
 
 function makeDb(): DB {
   const sqlite = new Database(":memory:");

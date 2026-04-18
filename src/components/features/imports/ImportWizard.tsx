@@ -8,11 +8,11 @@ import { DataTable } from "@/src/components/ui/DataTable";
 import { Modal } from "@/src/components/ui/Modal";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
-import {
-  previewImport,
-  type PreviewPayload,
-  type PreviewRow,
-} from "@/src/actions/previewImport";
+import { previewImport } from "@/src/actions/previewImport";
+import type {
+  PreviewPayload,
+  PreviewRow,
+} from "@/src/actions/previewImport.schema";
 import { confirmImport } from "@/src/actions/confirmImport";
 import { formatMoney } from "@/src/lib/format";
 

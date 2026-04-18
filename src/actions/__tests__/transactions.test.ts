@@ -13,13 +13,14 @@ vi.mock("next/cache", () => ({
 
 import { createAccount } from "../accounts";
 import { createAsset } from "../createAsset";
-import { createTransaction, createTransactionSchema } from "../createTransaction";
-import { deleteTransaction, deleteTransactionSchema } from "../deleteTransaction";
-import {
-  createCashMovement,
-  createCashMovementSchema,
-} from "../createCashMovement";
-import { deleteCashMovement, deleteCashMovementSchema } from "../deleteCashMovement";
+import { createTransaction } from "../createTransaction";
+import { createTransactionSchema } from "../createTransaction.schema";
+import { deleteTransaction } from "../deleteTransaction";
+import { deleteTransactionSchema } from "../deleteTransaction.schema";
+import { createCashMovement } from "../createCashMovement";
+import { createCashMovementSchema } from "../createCashMovement.schema";
+import { deleteCashMovement } from "../deleteCashMovement";
+import { deleteCashMovementSchema } from "../deleteCashMovement.schema";
 import { transactionFingerprint } from "../_fingerprint";
 
 function makeDb(): DB {
@@ -32,7 +33,7 @@ function makeDb(): DB {
 
 async function setup(db: DB) {
   const acc = await createAccount(
-    { name: "Broker", accountType: "broker", currency: "EUR", openingBalanceNative: 1000 },
+    { name: "Broker", accountType: "savings", currency: "EUR", openingBalanceNative: 1000 },
     db,
   );
   if (!acc.ok) throw new Error("account setup");
@@ -299,7 +300,7 @@ describe("cash movement actions", () => {
   beforeEach(async () => {
     db = makeDb();
     const acc = await createAccount(
-      { name: "Bank", accountType: "bank", currency: "EUR", openingBalanceNative: 0 },
+      { name: "Bank", accountType: "savings", currency: "EUR", openingBalanceNative: 0 },
       db,
     );
     if (!acc.ok) throw new Error("setup");

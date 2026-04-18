@@ -46,14 +46,20 @@ export function parseCobasCsv(csv: string): ImportParseResult {
       });
       return;
     }
-    const operation = lookup("Operación") || lookup("Operacion");
-    const fund = lookup("Fondo");
+    // Operation type lives in "Tipo" on the current Cobas export;
+    // legacy exports used "Operación"/"Operacion". "Operacion" in newer
+    // files is a reference id and must not be treated as the operation.
+    const operation = lookup("Tipo") || lookup("Operación") || lookup("Operacion");
+    const fund = lookup("Producto") || lookup("Fondo");
     const isin = lookup("ISIN") || null;
     const accountHint = lookup("Cuenta") || "cobas";
     const currency = (lookup("Divisa") || "EUR").toUpperCase();
     const participations = parseDecimal(lookup("Participaciones"));
     const nav = parseDecimal(lookup("Valor liquidativo"));
-    const amount = parseDecimal(lookup("Importe"));
+    const amount =
+      parseDecimal(lookup("Importe neto")) ??
+      parseDecimal(lookup("Importe bruto")) ??
+      parseDecimal(lookup("Importe"));
     const assetHint = { isin, name: fund || null };
 
     const tradeSide = mapTradeSide(operation);

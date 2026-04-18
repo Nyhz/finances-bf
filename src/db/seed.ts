@@ -47,7 +47,7 @@ function main() {
         id: accountId,
         name: "Revolut EUR",
         currency: "EUR",
-        accountType: "bank",
+        accountType: "savings",
         openingBalanceEur: openingCash,
         currentCashBalanceEur: currentCash,
       })

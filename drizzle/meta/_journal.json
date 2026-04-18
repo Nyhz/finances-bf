@@ -15,6 +15,20 @@
       "when": 1776464175560,
       "tag": "0001_chubby_roxanne_simpson",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1808784000000,
+      "tag": "0002_cash_bearing_account_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1808784060000,
+      "tag": "0003_prune_account_types",
+      "breakpoints": true
     }
   ]
 }

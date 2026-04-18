@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3200",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3200",
     "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "sync:prices": "curl -fsS -H \"x-cron-secret: $CRON_SECRET\" http://localhost:3000/api/cron/sync-prices"
+    "sync:prices": "curl -fsS -H \"x-cron-secret: $CRON_SECRET\" http://localhost:3200/api/cron/sync-prices"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -23,6 +23,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
+    "jspdf": "^4.2.1",
     "lucide-react": "^1.8.0",
     "next": "16.2.4",
     "react": "19.2.4",

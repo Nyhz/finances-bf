@@ -4,6 +4,17 @@ import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { formatEur, formatPercent } from "@/src/lib/format";
 import type { TopPositionRow } from "@/src/server/overview";
+import { PositionSparkline } from "./PositionSparkline";
+
+function formatUnit(value: number | null): string {
+  if (value == null) return "—";
+  return value.toLocaleString("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+}
 
 export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
   if (rows.length === 0) {
@@ -27,14 +38,19 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           {
             key: "asset",
             header: "Asset",
-            cell: (r) => r.position.asset.symbol ?? r.position.asset.name,
-          },
-          {
-            key: "account",
-            header: "Account",
-            cell: (r) => (
-              <span className="text-muted-foreground">{r.accountLabel}</span>
-            ),
+            className: "w-[220px]",
+            cell: (r) => {
+              const a = r.position.asset;
+              const symbol = a.providerSymbol ?? a.symbol ?? a.name;
+              return (
+                <div className="flex flex-col leading-tight">
+                  <span className="font-medium tabular-nums">{symbol}</span>
+                  <span className="text-xs text-muted-foreground truncate max-w-[26ch]">
+                    {a.name}
+                  </span>
+                </div>
+              );
+            },
           },
           {
             key: "qty",
@@ -42,36 +58,48 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
             align: "right",
             cell: (r) => (
               <span className="tabular-nums">
-                {r.position.position.quantity.toFixed(4)}
+                {r.position.position.quantity.toLocaleString("es-ES", {
+                  maximumFractionDigits: 4,
+                })}
               </span>
             ),
           },
           {
-            key: "marketValue",
-            header: "Market Value (EUR)",
+            key: "avgBuy",
+            header: "Avg buy / unit",
+            align: "right",
+            cell: (r) => (
+              <SensitiveValue className="tabular-nums">
+                {formatUnit(r.averageCostEur)}
+              </SensitiveValue>
+            ),
+          },
+          {
+            key: "currentUnit",
+            header: "Current / unit",
+            align: "right",
+            cell: (r) => (
+              <SensitiveValue className="tabular-nums">
+                {formatUnit(r.unitPriceEur)}
+              </SensitiveValue>
+            ),
+          },
+          {
+            key: "currentTotal",
+            header: "Current / total",
             align: "right",
             cell: (r) =>
               r.position.valuationEur == null ? (
                 <span className="text-muted-foreground">—</span>
               ) : (
-                <SensitiveValue>
+                <SensitiveValue className="tabular-nums">
                   {formatEur(r.position.valuationEur)}
                 </SensitiveValue>
               ),
           },
           {
-            key: "weight",
-            header: "Weight",
-            align: "right",
-            cell: (r) => (
-              <span className="tabular-nums text-muted-foreground">
-                {formatPercent(r.weight)}
-              </span>
-            ),
-          },
-          {
             key: "pnl",
-            header: "Unrealized P/L (EUR)",
+            header: "P/L",
             align: "right",
             cell: (r) => {
               if (r.pnlEur == null) {
@@ -83,12 +111,37 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
                   : r.pnlEur < 0
                     ? "text-destructive"
                     : "";
+              const pctLabel =
+                r.pnlPct == null
+                  ? null
+                  : `${r.pnlPct >= 0 ? "+" : ""}${formatPercent(r.pnlPct)}`;
               return (
-                <SensitiveValue className={color}>
-                  {formatEur(r.pnlEur)}
-                </SensitiveValue>
+                <div className={`flex flex-col items-end leading-tight ${color}`}>
+                  <SensitiveValue className="tabular-nums">
+                    {formatEur(r.pnlEur)}
+                  </SensitiveValue>
+                  {pctLabel && (
+                    <span className="text-xs tabular-nums opacity-80">
+                      {pctLabel}
+                    </span>
+                  )}
+                </div>
               );
             },
+          },
+          {
+            key: "graph",
+            header: "Graph",
+            align: "right",
+            className: "w-[260px]",
+            cell: (r) => (
+              <div className="flex justify-end">
+                <PositionSparkline
+                  id={r.position.position.id}
+                  data={r.sparkline}
+                />
+              </div>
+            ),
           },
         ]}
       />

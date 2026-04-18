@@ -177,8 +177,12 @@ export function normaliseDate(raw: string): string | null {
   // ISO yyyy-mm-dd[ ...]
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  // dd-mm-yyyy or dd/mm/yyyy
-  const dmy = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
-  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  // d(d)-m(m)-yyyy or d(d)/m(m)/yyyy
+  const dmy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, "0");
+    const month = dmy[2].padStart(2, "0");
+    return `${dmy[3]}-${month}-${day}`;
+  }
   return null;
 }

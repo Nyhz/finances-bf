@@ -323,7 +323,7 @@ finances/
 DB_PATH=./data/finances.db
 CRON_SECRET=<random>
 YAHOO_USER_AGENT=<optional override>
-PORT=3000
+PORT=3200
 ```
 
 No `NEXT_PUBLIC_API_URL` — data is fetched server-side via Drizzle, not HTTP.

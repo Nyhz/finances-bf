@@ -15,10 +15,10 @@ export type OverviewFilterAccount = {
 type Props = {
   accounts: OverviewFilterAccount[];
   range: OverviewRange;
-  accountId: string | null;
+  accountIds: string[];
 };
 
-export function OverviewFilters({ accounts, range, accountId }: Props) {
+export function OverviewFilters({ accounts, range, accountIds }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -35,8 +35,66 @@ export function OverviewFilters({ accounts, range, accountId }: Props) {
     [router, searchParams],
   );
 
+  const setAccounts = React.useCallback(
+    (next: string[]) => {
+      update({ accounts: next.length === 0 ? null : next.join(",") });
+    },
+    [update],
+  );
+
+  const toggleAccount = React.useCallback(
+    (id: string) => {
+      const selected = new Set(accountIds);
+      if (selected.has(id)) selected.delete(id);
+      else selected.add(id);
+      setAccounts([...selected]);
+    },
+    [accountIds, setAccounts],
+  );
+
+  const allActive = accountIds.length === 0;
+
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+      <div
+        role="group"
+        aria-label="Account filter"
+        className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1"
+      >
+        <button
+          type="button"
+          onClick={() => setAccounts([])}
+          aria-pressed={allActive}
+          className={cn(
+            "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+            allActive
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          )}
+        >
+          All
+        </button>
+        {accounts.map((a) => {
+          const active = accountIds.includes(a.id);
+          return (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => toggleAccount(a.id)}
+              aria-pressed={active}
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              {a.name}
+            </button>
+          );
+        })}
+      </div>
+
       <div
         role="tablist"
         aria-label="Range"
@@ -63,22 +121,6 @@ export function OverviewFilters({ accounts, range, accountId }: Props) {
           );
         })}
       </div>
-
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span>Account</span>
-        <select
-          value={accountId ?? ""}
-          onChange={(e) => update({ accountId: e.target.value || null })}
-          className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground"
-        >
-          <option value="">All accounts</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-      </label>
     </div>
   );
 }

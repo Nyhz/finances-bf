@@ -37,7 +37,7 @@ async function setupAccount(db: DB, opening = 0) {
   const acc = await createAccount(
     {
       name: "DeGiro",
-      accountType: "broker",
+      accountType: "savings",
       currency: "EUR",
       openingBalanceNative: opening,
     },
@@ -146,14 +146,15 @@ describe("previewImport", () => {
     expect(res.data.counts.total).toBe(4);
   });
 
-  it("flags trade rows with no matching asset as needs_asset_creation", async () => {
+  it("flags the first trade row as needs_asset_creation and subsequent rows of the same asset as new", async () => {
     const res = await previewImport(
       { source: "degiro", accountId, csvText: CSV },
       db,
     );
     if (!res.ok) throw new Error("preview failed");
     const trades = res.data.rows.filter((r) => r.kind === "trade");
-    for (const t of trades) expect(t.status).toBe("needs_asset_creation");
+    expect(trades[0].status).toBe("needs_asset_creation");
+    for (const t of trades.slice(1)) expect(t.status).toBe("new");
   });
 });
 

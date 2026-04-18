@@ -53,7 +53,7 @@ describe("createAccount action", () => {
     const result = await createAccount(
       {
         name: "Revolut EUR",
-        accountType: "bank",
+        accountType: "savings",
         currency: "EUR",
         openingBalanceNative: 500,
       },

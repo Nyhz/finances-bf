@@ -3,10 +3,10 @@ export const dynamic = "force-dynamic";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { AssetsNewButton } from "@/src/components/features/assets/AssetsNewButton";
 import { AssetsTable } from "@/src/components/features/assets/AssetsTable";
-import { listAssets } from "@/src/server/assets";
+import { listAssetsWithFreshness } from "@/src/server/assets";
 
 export default async function AssetsPage() {
-  const rows = await listAssets();
+  const rows = await listAssetsWithFreshness();
 
   return (
     <div className="flex flex-col gap-6 p-8">

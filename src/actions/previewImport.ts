@@ -14,55 +14,20 @@ import type { ActionResult } from "./_shared";
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
+import { assetHintKey } from "../lib/imports/_shared";
 import type {
   AssetHint,
-  ImportParseError,
   ImportSource,
   ParsedImportRow,
 } from "../lib/imports/types";
 
-export const previewImportSchema = z.object({
-  source: z.enum(["degiro", "binance", "cobas"]),
-  accountId: z.string().min(1),
-  csvText: z.string().min(1),
-});
-
-export type PreviewImportInput = z.input<typeof previewImportSchema>;
-
-export type PreviewRowStatus = "new" | "duplicate" | "needs_asset_creation";
-
-export type PreviewRow = {
-  index: number;
-  kind: "trade" | "cash_movement";
-  status: PreviewRowStatus;
-  tradeDate: string;
-  rowFingerprint: string;
-  currency: string;
-  assetHint?: AssetHint | null;
-  matchedAssetId: string | null;
-  side?: "buy" | "sell";
-  movement?: string;
-  quantity?: number;
-  priceNative?: number;
-  amountNative?: number;
-  fees?: number | null;
-};
-
-export type PreviewCounts = {
-  total: number;
-  new: number;
-  duplicate: number;
-  needsAssetCreation: number;
-  errors: number;
-};
-
-export type PreviewPayload = {
-  source: ImportSource;
-  accountId: string;
-  rows: PreviewRow[];
-  errors: ImportParseError[];
-  counts: PreviewCounts;
-};
+import {
+  previewImportSchema,
+  type PreviewCounts,
+  type PreviewPayload,
+  type PreviewRow,
+  type PreviewRowStatus,
+} from "./previewImport.schema";
 
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
@@ -169,7 +134,20 @@ export async function previewImport(
   }
 
   const parseResult = runParser(source, csvText);
-  const rows = parseResult.rows.map((r, i) => toPreviewRow(db, r, i));
+  // Track asset hints we've already flagged as "needs creation" inside this
+  // batch so subsequent rows of the same asset don't re-request creation.
+  const pendingHintKeys = new Set<string>();
+  const rows = parseResult.rows.map((r, i) => {
+    const row = toPreviewRow(db, r, i);
+    if (row.status === "needs_asset_creation") {
+      const key = assetHintKey(row.assetHint ?? null);
+      if (key && pendingHintKeys.has(key)) {
+        return { ...row, status: "new" as PreviewRowStatus };
+      }
+      if (key) pendingHintKeys.add(key);
+    }
+    return row;
+  });
   const counts: PreviewCounts = {
     total: rows.length,
     new: rows.filter((r) => r.status === "new").length,

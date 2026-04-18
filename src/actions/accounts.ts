@@ -8,13 +8,13 @@ import { db as defaultDb, type DB } from "../db/client";
 import { accounts, auditEvents, fxRates, type Account } from "../db/schema";
 import { toIsoDate } from "../lib/fx";
 
-const ACTOR = "commander";
+import { ACCOUNT_TYPES } from "./_shared";
 
-const ACCOUNT_TYPES = ["broker", "bank", "crypto", "cash", "other"] as const;
+const ACTOR = "commander";
 
 const createAccountSchema = z.object({
   name: z.string().trim().min(1).max(80),
-  accountType: z.enum(ACCOUNT_TYPES).default("other"),
+  accountType: z.enum(ACCOUNT_TYPES).default("savings"),
   currency: z
     .string()
     .trim()

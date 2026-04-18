@@ -31,6 +31,17 @@ export type ParsedTradeRow = CommonFields & {
   priceNative: number;
   currency: string;
   fees?: number | null;
+  /**
+   * Broker-supplied EUR/native FX for this specific trade. When present, the
+   * importer uses this instead of looking up a daily FX rate — DEGIRO and
+   * similar publish the exact cross rate they charged.
+   */
+  fxRateToEurOverride?: number | null;
+  /**
+   * When true, `fees` is already in EUR (DEGIRO reports AutoFX + third-party
+   * fees in EUR even for USD trades). Importer skips the FX conversion.
+   */
+  feesAlreadyEur?: boolean;
 };
 
 export type ParsedCashMovementRow = CommonFields & {

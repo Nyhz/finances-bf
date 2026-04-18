@@ -4,6 +4,7 @@ import * as React from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { createAccount } from "@/src/actions/accounts";
+import { ACCOUNT_TYPES } from "@/src/actions/_shared";
 
 type FormState = {
   name: string;
@@ -15,13 +16,11 @@ type FormState = {
 
 const INITIAL: FormState = {
   name: "",
-  accountType: "other",
+  accountType: "savings",
   currency: "EUR",
   openingBalanceNative: "0",
   notes: "",
 };
-
-const ACCOUNT_TYPES = ["broker", "bank", "crypto", "cash", "other"] as const;
 
 export function CreateAccountModal({
   open,

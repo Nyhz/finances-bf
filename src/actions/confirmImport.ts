@@ -30,26 +30,7 @@ import type {
 
 type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 
-export const confirmImportSchema = z.object({
-  source: z.enum(["degiro", "binance", "cobas"]),
-  accountId: z.string().min(1),
-  csvText: z.string().min(1),
-  overrides: z
-    .record(z.string(), z.object({ assetId: z.string().min(1).optional() }))
-    .optional(),
-});
-
-export type ConfirmImportInput = z.input<typeof confirmImportSchema>;
-
-export type ConfirmImportResult = {
-  inserted: number;
-  insertedTrades: number;
-  insertedCashMovements: number;
-  skippedDuplicates: number;
-  skippedErrors: number;
-  createdAssets: number;
-  fingerprints: string[];
-};
+import { confirmImportSchema, type ConfirmImportResult } from "./confirmImport.schema";
 
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
@@ -165,12 +146,15 @@ function insertTrade(
   row: Extract<ParsedImportRow, { kind: "trade" }>,
   source: ImportSource,
 ): void {
-  const rate = resolveFx(tx, row.currency, row.tradeDate);
+  const rate =
+    row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
+      ? row.fxRateToEurOverride
+      : resolveFx(tx, row.currency, row.tradeDate);
   const sign = row.side === "buy" ? -1 : 1;
   const tradeGrossAmount = row.quantity * row.priceNative;
   const tradeGrossAmountEur = round(tradeGrossAmount * rate);
   const fees = row.fees ?? 0;
-  const feesAmountEur = round(fees * rate);
+  const feesAmountEur = row.feesAlreadyEur ? round(fees) : round(fees * rate);
   const cashImpactEur = sign * round(tradeGrossAmountEur) - feesAmountEur;
   const tradedAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
   const id = ulid();

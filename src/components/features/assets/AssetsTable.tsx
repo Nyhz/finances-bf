@@ -9,12 +9,31 @@ import { ConfirmModal } from "@/src/components/ui/ConfirmModal";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { deactivateAsset } from "@/src/actions/deactivateAsset";
 import type { Asset } from "@/src/db/schema";
+import type { AssetListRow } from "@/src/server/assets";
 import { EditAssetModal } from "./EditAssetModal";
 import { SetManualPriceModal } from "./SetManualPriceModal";
 
 type ModalKind = "edit" | "price" | "deactivate" | null;
 
-export function AssetsTable({ rows }: { rows: Asset[] }) {
+function FreshnessCell({ row }: { row: AssetListRow }) {
+  const f = row.freshness;
+  if (!f) {
+    return <span className="text-xs text-muted-foreground">No price</span>;
+  }
+  const when = new Date(f.pricedAt).toISOString().slice(0, 10);
+  const variant =
+    f.source === "yahoo" ? "success" : f.source === "manual" ? "neutral" : "danger";
+  const label =
+    f.source === "yahoo" ? "Yahoo" : f.source === "manual" ? "Manual" : "Stale";
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Badge variant={variant}>{label}</Badge>
+      <span className="text-xs text-muted-foreground">{when}</span>
+    </span>
+  );
+}
+
+export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
   const [active, setActive] = React.useState<Asset | null>(null);
   const [modal, setModal] = React.useState<ModalKind>(null);
 
@@ -35,7 +54,7 @@ export function AssetsTable({ rows }: { rows: Asset[] }) {
 
   return (
     <>
-      <DataTable<Asset>
+      <DataTable<AssetListRow>
         rows={rows}
         getRowKey={(r) => r.id}
         columns={[
@@ -43,6 +62,11 @@ export function AssetsTable({ rows }: { rows: Asset[] }) {
           { key: "name", header: "Name", cell: (r) => r.name },
           { key: "type", header: "Type", cell: (r) => r.assetType },
           { key: "currency", header: "Currency", cell: (r) => r.currency },
+          {
+            key: "price",
+            header: "Price",
+            cell: (r) => <FreshnessCell row={r} />,
+          },
           {
             key: "active",
             header: "Status",

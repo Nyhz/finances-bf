@@ -10,6 +10,7 @@ import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { deleteAccount } from "@/src/actions/deleteAccount";
 import { formatEur, formatMoney } from "@/src/lib/format";
 import type { AccountWithTotals } from "@/src/server/accounts";
+import { isCashBearingAccount } from "@/src/actions/_shared";
 
 export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
   const [target, setTarget] = React.useState<AccountWithTotals | null>(null);
@@ -47,19 +48,25 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
             key: "eur",
             header: "Balance (EUR)",
             align: "right",
-            cell: (r) => (
-              <SensitiveValue>{formatEur(r.currentCashBalanceEur)}</SensitiveValue>
-            ),
+            cell: (r) =>
+              isCashBearingAccount(r.accountType) ? (
+                <SensitiveValue>{formatEur(r.currentCashBalanceEur)}</SensitiveValue>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              ),
           },
           {
             key: "native",
             header: "Balance (native)",
             align: "right",
-            cell: (r) => (
-              <SensitiveValue>
-                {formatMoney(r.currentCashBalanceEur, r.currency)}
-              </SensitiveValue>
-            ),
+            cell: (r) =>
+              isCashBearingAccount(r.accountType) ? (
+                <SensitiveValue>
+                  {formatMoney(r.currentCashBalanceEur, r.currency)}
+                </SensitiveValue>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              ),
           },
           {
             key: "actions",

@@ -9,11 +9,7 @@ import { accountCashMovements, auditEvents } from "../db/schema";
 import { ACTOR, type ActionResult } from "./_shared";
 import { recomputeAccountCashBalance } from "../server/recompute";
 
-export const deleteCashMovementSchema = z.object({
-  id: z.string().min(1),
-});
-
-export type DeleteCashMovementInput = z.input<typeof deleteCashMovementSchema>;
+import { deleteCashMovementSchema } from "./deleteCashMovement.schema";
 
 export async function deleteCashMovement(
   input: unknown,

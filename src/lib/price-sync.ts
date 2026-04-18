@@ -47,6 +47,10 @@ function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function roundUnitPrice(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
 export async function syncPrices(
   db: DB,
   client: PriceClient,
@@ -67,6 +71,12 @@ export async function syncPrices(
     .from(assets)
     .where(eq(assets.isActive, true))
     .all();
+
+  // Quote currency per asset, populated as we fetch. Authoritative source of
+  // truth for FX conversion — the asset row's `currency` reflects trade
+  // currency (as imported), which may differ from the Yahoo quote currency
+  // for ADRs, dual-listed funds, etc.
+  const quoteCurrencyByAsset = new Map<string, string>();
 
   // 1. Asset prices
   for (const asset of activeAssets) {
@@ -90,11 +100,17 @@ export async function syncPrices(
       )
       .get();
     if (existing) {
+      // Already priced today; fall back to the asset row's currency since we
+      // no longer have a fresh quote to read.
+      if (asset.currency) {
+        quoteCurrencyByAsset.set(asset.id, asset.currency.toUpperCase());
+      }
       summary.skipped++;
       continue;
     }
     try {
       const quote = await client.fetchQuote(symbol);
+      quoteCurrencyByAsset.set(asset.id, quote.currency.toUpperCase());
       await db
         .insert(priceHistory)
         .values({
@@ -117,10 +133,9 @@ export async function syncPrices(
     }
   }
 
-  // 2. FX rates — one row per non-EUR currency present in active assets.
+  // 2. FX rates — one row per non-EUR quote currency seen in this run.
   const currencySet = new Set<string>();
-  for (const a of activeAssets) {
-    const ccy = a.currency?.toUpperCase();
+  for (const ccy of quoteCurrencyByAsset.values()) {
     if (ccy && ccy !== "EUR") currencySet.add(ccy);
   }
   for (const ccy of currencySet) {
@@ -199,8 +214,10 @@ export async function syncPrices(
     if (!priceRow) continue;
 
     try {
-      const fx = await resolveFxRate(asset.currency, today, fxLookup);
-      const unitPriceEur = roundMoney(priceRow.price * fx.rate);
+      const quoteCurrency =
+        quoteCurrencyByAsset.get(asset.id) ?? asset.currency;
+      const fx = await resolveFxRate(quoteCurrency, today, fxLookup);
+      const unitPriceEur = roundUnitPrice(priceRow.price * fx.rate);
       const positionRow = await db
         .select()
         .from(assetPositions)

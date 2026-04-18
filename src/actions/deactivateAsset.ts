@@ -8,11 +8,7 @@ import { db as defaultDb, type DB } from "../db/client";
 import { assets, auditEvents, type Asset } from "../db/schema";
 import { ACTOR, type ActionResult } from "./_shared";
 
-export const deactivateAssetSchema = z.object({
-  id: z.string().min(1),
-});
-
-export type DeactivateAssetInput = z.input<typeof deactivateAssetSchema>;
+import { deactivateAssetSchema } from "./deactivateAsset.schema";
 
 export async function deactivateAsset(
   input: unknown,

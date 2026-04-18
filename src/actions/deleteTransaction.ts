@@ -9,11 +9,7 @@ import { accountCashMovements, assetTransactions, auditEvents } from "../db/sche
 import { ACTOR, type ActionResult } from "./_shared";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
 
-export const deleteTransactionSchema = z.object({
-  id: z.string().min(1),
-});
-
-export type DeleteTransactionInput = z.input<typeof deleteTransactionSchema>;
+import { deleteTransactionSchema } from "./deleteTransaction.schema";
 
 export async function deleteTransaction(
   input: unknown,

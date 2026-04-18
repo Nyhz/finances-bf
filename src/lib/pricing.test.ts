@@ -4,9 +4,13 @@ const quoteMock = vi.fn();
 const historicalMock = vi.fn();
 
 vi.mock("yahoo-finance2", () => ({
-  default: {
-    quote: (...args: unknown[]) => quoteMock(...args),
-    historical: (...args: unknown[]) => historicalMock(...args),
+  default: class {
+    quote(...args: unknown[]) {
+      return quoteMock(...args);
+    }
+    historical(...args: unknown[]) {
+      return historicalMock(...args);
+    }
   },
 }));
 

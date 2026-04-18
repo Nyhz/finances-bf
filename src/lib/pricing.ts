@@ -1,5 +1,7 @@
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
 import { toIsoDate } from "./fx";
+
+const yahooFinance = new YahooFinance();
 
 export type Quote = {
   symbol: string;

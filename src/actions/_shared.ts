@@ -18,3 +18,19 @@ export const ASSET_TYPES = [
   "other",
 ] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
+
+export const ACCOUNT_TYPES = [
+  "broker",
+  "crypto",
+  "investment",
+  "savings",
+] as const;
+export type AccountType = (typeof ACCOUNT_TYPES)[number];
+
+// Only savings tracks a cash balance. Broker / crypto / investment are pure
+// position containers — buys don't debit cash, sells don't credit it.
+export const CASH_BEARING_ACCOUNT_TYPES = ["savings"] as const;
+
+export function isCashBearingAccount(type: string): boolean {
+  return (CASH_BEARING_ACCOUNT_TYPES as readonly string[]).includes(type);
+}

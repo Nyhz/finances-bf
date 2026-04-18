@@ -1,74 +1,219 @@
 "use client";
 
-import * as React from "react";
+import { useMemo } from "react";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
-import { formatEur } from "@/src/lib/format";
 import type { NetWorthPoint } from "@/src/server/overview";
 
-type TooltipPayload = {
-  payload: NetWorthPoint;
-  value: number;
+type TooltipEntry = { value?: number | string; payload?: Point };
+type ChartTooltipProps = {
+  active?: boolean;
+  payload?: TooltipEntry[];
 };
 
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: TooltipPayload[];
-  label?: string;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const value = payload[0].value;
-  return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-sm">
-      <div className="text-muted-foreground">{label}</div>
-      <SensitiveValue className="font-medium">{formatEur(value)}</SensitiveValue>
-    </div>
-  );
+type Point = {
+  label: string;
+  marketIndex: number;
+  totalValue: number;
+  dateIso: string;
+};
+
+const BASELINE = 100;
+const RETURN_PCT_MIN_BASELINE_EUR = 1;
+const CHART_EDGE_PADDING_RATIO = 0.02;
+const MIN_CHART_EDGE_PADDING = 0.05;
+
+function niceStep(rawStep: number): number {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return 1;
+  const exponent = Math.floor(Math.log10(rawStep));
+  const fraction = rawStep / 10 ** exponent;
+  let niceFraction = 1;
+  if (fraction <= 1) niceFraction = 1;
+  else if (fraction <= 2) niceFraction = 2;
+  else if (fraction <= 5) niceFraction = 5;
+  else niceFraction = 10;
+  return niceFraction * 10 ** exponent;
+}
+
+function formatLabel(iso: string): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return d.toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function formatTooltipDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+function formatTooltipMoney(value: number): string {
+  return `${Math.round(value).toLocaleString("es-ES")}€`;
 }
 
 export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
+  const points: Point[] = useMemo(
+    () =>
+      data.map((p) => {
+        // marketIndex = value / invested × 100, so 100 = break-even against
+        // everything you've contributed up to that date (matches KPI math).
+        const invested = p.investedEur;
+        const marketIndex =
+          Math.abs(invested) >= RETURN_PCT_MIN_BASELINE_EUR
+            ? (p.valueEur / invested) * BASELINE
+            : BASELINE;
+        return {
+          label: formatLabel(p.date),
+          dateIso: p.date,
+          totalValue: p.valueEur,
+          marketIndex,
+        };
+      }),
+    [data],
+  );
+
+  const yAxis = useMemo<{ domain: [number, number]; ticks: number[] }>(() => {
+    const values = points
+      .map((p) => p.marketIndex)
+      .filter((v) => Number.isFinite(v));
+    if (values.length === 0) return { domain: [0, 1], ticks: [0, 1] };
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+
+    let minBound = min;
+    let maxBound = max;
+    if (min === max) {
+      const basePadding = Math.max(Math.abs(min) * 0.0025, MIN_CHART_EDGE_PADDING);
+      minBound = min - basePadding;
+      maxBound = max + basePadding;
+    } else {
+      const spread = max - min;
+      const edgePadding = Math.max(
+        spread * CHART_EDGE_PADDING_RATIO,
+        MIN_CHART_EDGE_PADDING,
+      );
+      minBound = min - edgePadding;
+      maxBound = max + edgePadding;
+    }
+
+    const visibleRange = Math.max(maxBound - minBound, 1e-6);
+    const step = niceStep(visibleRange / 5);
+    const firstTick = Math.ceil(minBound / step) * step;
+    const lastTick = Math.floor(maxBound / step) * step;
+    const ticks: number[] = [];
+    if (firstTick <= lastTick) {
+      for (let v = firstTick; v <= lastTick + step * 0.01; v += step) {
+        ticks.push(v);
+      }
+    }
+    if (ticks.length < 2) ticks.push(Math.round(minBound), Math.round(maxBound));
+    return { domain: [minBound, maxBound], ticks };
+  }, [points]);
+
+  const formatYAxisTick = (value: number) =>
+    `${Math.round(value - BASELINE)}%`;
+
+  const formatTooltipPercent = (marketIndex: number) => {
+    const pct = marketIndex - BASELINE;
+    const formatted = pct.toLocaleString("es-ES", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${pct >= 0 ? "+" : ""}${formatted}%`;
+  };
+
+  const renderTooltip = (props: ChartTooltipProps) => {
+    const { active, payload } = props;
+    if (!active || !payload || payload.length === 0) return null;
+    const p = payload[0]?.payload;
+    const rawValue = payload[0]?.value;
+    const marketIndex =
+      typeof rawValue === "number" ? rawValue : Number.NaN;
+    if (!p || !Number.isFinite(marketIndex)) return null;
+    return (
+      <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
+        <p className="text-xs text-muted-foreground">
+          {formatTooltipDate(p.dateIso)}
+        </p>
+        <p className="text-sm font-semibold text-foreground">
+          {formatTooltipMoney(p.totalValue)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          ({formatTooltipPercent(marketIndex)})
+        </p>
+      </div>
+    );
+  };
+
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-          <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
-          <XAxis
-            dataKey="date"
+    <div className="w-full px-5 pb-5">
+      <ResponsiveContainer width="100%" height={320}>
+        <AreaChart data={points}>
+          <defs>
+            <linearGradient id="portfolioPerfFill" x1="0" y1="0" x2="0" y2="1">
+              <stop
+                offset="5%"
+                stopColor="hsl(var(--primary))"
+                stopOpacity={0.38}
+              />
+              <stop
+                offset="95%"
+                stopColor="hsl(var(--primary))"
+                stopOpacity={0.02}
+              />
+            </linearGradient>
+          </defs>
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="hsl(var(--border))"
+            strokeOpacity={0.45}
+            vertical={false}
+          />
+          <ReferenceLine
+            y={BASELINE}
             stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
+            strokeOpacity={0.55}
+            strokeDasharray="4 4"
+          />
+          <XAxis
+            dataKey="label"
+            stroke="hsl(var(--muted-foreground))"
             tickLine={false}
             axisLine={false}
+            tick={{ fontSize: 12 }}
             minTickGap={32}
           />
           <YAxis
+            domain={yAxis.domain}
+            ticks={yAxis.ticks}
             stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
             tickLine={false}
             axisLine={false}
-            domain={["auto", "auto"]}
-            width={72}
+            tick={{ fontSize: 12 }}
+            tickFormatter={formatYAxisTick}
+            width={56}
           />
-          <Tooltip content={<ChartTooltip />} />
-          <Line
+          <Tooltip content={renderTooltip as never} />
+          <Area
             type="monotone"
-            dataKey="valueEur"
-            stroke="hsl(var(--chart-1))"
+            dataKey="marketIndex"
+            stroke="hsl(var(--primary))"
             strokeWidth={2}
-            dot={false}
+            isAnimationActive={false}
+            fill="url(#portfolioPerfFill)"
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );

@@ -12,7 +12,8 @@ vi.mock("next/cache", () => ({
 }));
 
 import { createAccount } from "../accounts";
-import { deleteAccount, deleteAccountSchema } from "../deleteAccount";
+import { deleteAccount } from "../deleteAccount";
+import { deleteAccountSchema } from "../deleteAccount.schema";
 
 function makeDb(): DB {
   const sqlite = new Database(":memory:");
@@ -29,7 +30,7 @@ describe("deleteAccount", () => {
   beforeEach(async () => {
     db = makeDb();
     const created = await createAccount(
-      { name: "Test", accountType: "bank", currency: "EUR", openingBalanceNative: 0 },
+      { name: "Test", accountType: "savings", currency: "EUR", openingBalanceNative: 0 },
       db,
     );
     if (!created.ok) throw new Error("setup failed");

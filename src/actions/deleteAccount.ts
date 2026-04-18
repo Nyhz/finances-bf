@@ -12,12 +12,7 @@ import {
   auditEvents,
 } from "../db/schema";
 import { ACTOR, type ActionResult } from "./_shared";
-
-export const deleteAccountSchema = z.object({
-  id: z.string().min(1),
-});
-
-export type DeleteAccountInput = z.input<typeof deleteAccountSchema>;
+import { deleteAccountSchema } from "./deleteAccount.schema";
 
 export async function deleteAccount(
   input: unknown,

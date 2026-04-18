@@ -15,17 +15,7 @@ import {
 } from "../db/schema";
 import { toIsoDate, type FxLookup } from "../lib/fx";
 import { ACTOR, type ActionResult } from "./_shared";
-
-export const setManualPriceSchema = z.object({
-  assetId: z.string().min(1),
-  priceNative: z.number().finite().positive(),
-  priceDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-});
-
-export type SetManualPriceInput = z.input<typeof setManualPriceSchema>;
+import { setManualPriceSchema } from "./setManualPrice.schema";
 
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;

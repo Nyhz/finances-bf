@@ -54,7 +54,15 @@ export default async function TaxesPage({
             Realized gains and dividends for {year}.
           </p>
         </div>
-        <YearSelect years={yearOptions} value={year} />
+        <div className="flex items-center gap-3">
+          <a
+            className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+            href={`/api/exports/tax-report?year=${year}`}
+          >
+            Export PDF
+          </a>
+          <YearSelect years={yearOptions} value={year} />
+        </div>
       </header>
 
       {!hasAny ? (

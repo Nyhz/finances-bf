@@ -6,6 +6,7 @@ import {
   assetPositions,
   assetTransactions,
 } from "../db/schema";
+import { isCashBearingAccount } from "../actions/_shared";
 
 // Drizzle better-sqlite3 tx handle type. We keep it loose to avoid a circular
 // import with the generated schema type — all calls here are schema-typed.
@@ -120,6 +121,15 @@ export function recomputeAssetPosition(
 export function recomputeAccountCashBalance(tx: Tx, accountId: string): void {
   const account = tx.select().from(accounts).where(eq(accounts.id, accountId)).get();
   if (!account) throw new Error(`account not found: ${accountId}`);
+
+  if (!isCashBearingAccount(account.accountType)) {
+    tx
+      .update(accounts)
+      .set({ currentCashBalanceEur: 0, updatedAt: Date.now() })
+      .where(eq(accounts.id, accountId))
+      .run();
+    return;
+  }
 
   const sumRow = tx
     .select({ total: sql<number>`coalesce(sum(${accountCashMovements.cashImpactEur}), 0)` })

@@ -1,4 +1,4 @@
-export type ImportSource = "degiro" | "binance" | "cobas";
+export type ImportSource = "degiro" | "binance" | "cobas" | "degiro-statement";
 
 export type TradeSide = "buy" | "sell";
 
@@ -52,7 +52,18 @@ export type ParsedCashMovementRow = CommonFields & {
   assetHint?: AssetHint | null;
 };
 
-export type ParsedImportRow = ParsedTradeRow | ParsedCashMovementRow;
+export type ParsedDividendRow = CommonFields & {
+  kind: "dividend";
+  assetHint: AssetHint;
+  grossNative: number;
+  currency: string;
+  fxRateToEurOverride?: number | null;
+  withholdingOrigenNative: number;
+  withholdingDestinoEur?: number | null;
+  sourceCountry?: string | null;
+};
+
+export type ParsedImportRow = ParsedTradeRow | ParsedCashMovementRow | ParsedDividendRow;
 
 export type ImportParseError = {
   rowIndex: number;

@@ -18,7 +18,7 @@ export type PreviewRowStatus = "new" | "duplicate" | "needs_asset_creation";
 
 export type PreviewRow = {
   index: number;
-  kind: "trade" | "cash_movement";
+  kind: "trade" | "cash_movement" | "dividend";
   status: PreviewRowStatus;
   tradeDate: string;
   rowFingerprint: string;

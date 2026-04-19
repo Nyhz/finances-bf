@@ -313,11 +313,15 @@ export async function confirmImport(
           touchedAssets.add(asset.id);
           insertedTrades++;
           fingerprints.push(row.rowFingerprint);
-        } else {
+        } else if (row.kind === "cash_movement") {
           if (tracksCash) {
             insertCashMovement(tx, accountId, row, source);
             insertedCashMovements++;
           }
+          fingerprints.push(row.rowFingerprint);
+        } else {
+          // "dividend" rows — persisted in Task 16 (confirmImport dividend support).
+          // For now just record the fingerprint to prevent duplicate imports.
           fingerprints.push(row.rowFingerprint);
         }
       });

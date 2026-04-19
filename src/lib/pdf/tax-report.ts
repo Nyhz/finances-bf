@@ -1,102 +1,68 @@
 import { jsPDF } from "jspdf";
-import type { RealizedGainsYearResult } from "@/src/server/taxes";
+import type { TaxReport } from "../../server/tax/report";
+import type { InformationalModelsStatus } from "../../server/tax/m720";
 
-export type TaxReportInput = {
+export type TaxPdfInput = {
   year: number;
-  gains: RealizedGainsYearResult;
-  dividendsEur: number;
-  interestEur: number;
-  generatedAt?: number;
+  report: TaxReport;
+  models: InformationalModelsStatus;
+  sealedAt: number | null;
 };
 
-const eur = new Intl.NumberFormat("en-IE", {
-  style: "currency",
-  currency: "EUR",
-  minimumFractionDigits: 2,
-});
+const eur = new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 });
 
-function formatDate(ts: number) {
-  return new Date(ts).toISOString().slice(0, 10);
-}
+function fmt(n: number): string { return eur.format(n); }
 
-export function buildTaxReportPdf(input: TaxReportInput): Uint8Array {
+export function buildTaxReportPdf(input: TaxPdfInput): Uint8Array {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const margin = 40;
-  let y = margin;
+  let y = 40;
+  const L = 40;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(`Tax Report ${input.year}`, margin, y);
-  y += 22;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+  doc.text(`IRPF — ${input.year}`, L, y); y += 22;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+  doc.text(input.sealedAt ? `Sealed ${new Date(input.sealedAt).toISOString().slice(0, 10)}` : "Unsealed (live)", L, y); y += 18;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(
-    `Generated: ${new Date(input.generatedAt ?? Date.now()).toISOString()}`,
-    margin,
-    y,
-  );
-  y += 22;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Summary", margin, y);
-  y += 16;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  const lines: Array<[string, number]> = [
-    ["Realized gains", input.gains.totals.realizedGainsEur],
-    ["Realized losses", input.gains.totals.realizedLossesEur],
-    ["Net realized P&L", input.gains.totals.netRealizedEur],
-    ["Proceeds", input.gains.totals.proceedsEur],
-    ["Cost basis", input.gains.totals.costBasisEur],
-    ["Fees", input.gains.totals.feesEur],
-    ["Dividends", input.dividendsEur],
-    ["Interest", input.interestEur],
+  doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+  doc.text("Totales", L, y); y += 16;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+  const t = input.report.totals;
+  const rows: [string, string][] = [
+    ["Realized gains", fmt(t.realizedGainsEur)],
+    ["Realized losses (computable)", fmt(t.realizedLossesComputableEur)],
+    ["Non-computable losses (art. 33.5)", fmt(t.nonComputableLossesEur)],
+    ["Net computable", fmt(t.netComputableEur)],
+    ["Dividends gross", fmt(t.dividendsGrossEur)],
+    ["Retención origen total", fmt(t.withholdingOrigenTotalEur)],
   ];
-  for (const [label, value] of lines) {
-    doc.text(label, margin, y);
-    doc.text(eur.format(value), 555 - margin, y, { align: "right" });
-    y += 14;
-  }
+  for (const [label, val] of rows) { doc.text(label, L, y); doc.text(val, 500, y, { align: "right" }); y += 14; }
+  y += 10;
 
-  y += 12;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Realized sales (FIFO)", margin, y);
-  y += 16;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text("Date", margin, y);
-  doc.text("Asset", margin + 70, y);
-  doc.text("Qty", margin + 230, y);
-  doc.text("Proceeds", margin + 290, y);
-  doc.text("Cost", margin + 370, y);
-  doc.text("Fees", margin + 430, y);
-  doc.text("Gain", 555 - margin, y, { align: "right" });
-  y += 6;
-  doc.setLineWidth(0.5);
-  doc.line(margin, y, 555 - margin, y);
-  y += 12;
-
+  doc.setFont("helvetica", "bold"); doc.text("Ganancias patrimoniales", L, y); y += 14;
   doc.setFont("helvetica", "normal");
-  for (const sale of input.gains.sales) {
-    if (y > 780) {
-      doc.addPage();
-      y = margin;
-    }
-    doc.text(formatDate(sale.sellDate), margin, y);
-    doc.text((sale.assetName ?? sale.assetId).slice(0, 28), margin + 70, y);
-    doc.text(sale.quantity.toFixed(4), margin + 230, y);
-    doc.text(eur.format(sale.proceedsEur), margin + 290, y);
-    doc.text(eur.format(sale.costBasisEur), margin + 370, y);
-    doc.text(eur.format(sale.feesEur), margin + 430, y);
-    doc.text(eur.format(sale.realizedGainEur), 555 - margin, y, { align: "right" });
-    y += 13;
+  for (const s of input.report.sales) {
+    if (y > 780) { doc.addPage(); y = 40; }
+    doc.text(`${new Date(s.tradedAt).toISOString().slice(0, 10)}  ${s.assetName ?? s.assetId}  qty ${s.quantity}`, L, y); y += 12;
+    doc.text(`  gross ${fmt(s.rawGainLossEur)}  non-comp ${fmt(s.nonComputableLossEur)}  computable ${fmt(s.computableGainLossEur)}`, L, y); y += 14;
   }
 
-  const buffer = doc.output("arraybuffer");
-  return new Uint8Array(buffer);
+  doc.setFont("helvetica", "bold"); doc.text("Dividendos", L, y); y += 14;
+  doc.setFont("helvetica", "normal");
+  for (const d of input.report.dividends) {
+    if (y > 780) { doc.addPage(); y = 40; }
+    doc.text(`${new Date(d.tradedAt).toISOString().slice(0, 10)}  ${d.assetName ?? d.assetId}  ${d.sourceCountry ?? "—"}  gross ${fmt(d.grossEur)}  WHT ${fmt(d.withholdingOrigenEur)}`, L, y); y += 12;
+  }
+
+  doc.setFont("helvetica", "bold"); doc.text("Modelos informativos", L, y); y += 14;
+  doc.setFont("helvetica", "normal");
+  const renderBlocks = (label: string, blocks: InformationalModelsStatus["m720"]["blocks"]) => {
+    doc.text(label, L, y); y += 12;
+    for (const b of blocks) { doc.text(`  ${b.country}  ${b.type}  ${b.status}  ${fmt(b.valueEur)}`, L, y); y += 12; }
+  };
+  renderBlocks("720", input.models.m720.blocks);
+  renderBlocks("721", input.models.m721.blocks);
+  renderBlocks("D-6", input.models.d6.blocks);
+
+  const out = doc.output("arraybuffer");
+  return new Uint8Array(out);
 }

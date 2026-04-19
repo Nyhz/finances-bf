@@ -17,6 +17,7 @@ import { ACTOR, type ActionResult } from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
 import { fxRates } from "../db/schema";
+import { roundEur as round } from "../lib/money";
 
 import { createTransactionSchema } from "./createTransaction.schema";
 
@@ -186,8 +187,4 @@ export async function createTransaction(
     }
     return { ok: false, error: { code: "db", message } };
   }
-}
-
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
 }

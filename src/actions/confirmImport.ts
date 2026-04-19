@@ -14,7 +14,8 @@ import {
   fxRates,
   type Asset,
 } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
+import { inferAssetClassTax } from "../server/tax/classification";
 import {
   recomputeAccountCashBalance,
   recomputeAssetPosition,
@@ -106,12 +107,18 @@ function autoCreateAsset(
   const now = Date.now();
   const id = ulid();
   const name = hint.name || hint.symbol || hint.isin || "Unknown";
+  const assetType = source === "binance" ? "crypto" : "other";
   tx
     .insert(assets)
     .values({
       id,
       name,
-      assetType: source === "binance" ? "crypto" : "other",
+      assetType,
+      assetClassTax: inferAssetClassTax({
+        assetType,
+        name: hint.name,
+        isin: hint.isin,
+      }),
       symbol: hint.symbol ?? null,
       isin: hint.isin ?? null,
       currency,
@@ -322,8 +329,7 @@ export async function confirmImport(
         .get();
       if (!account) throw new Error(`account not found: ${accountId}`);
 
-      const tracksCash =
-        account.accountType === "bank" || account.accountType === "savings";
+      const tracksCash = isCashBearingAccount(account.accountType);
 
       const touchedAssets = new Set<string>();
       const fingerprints: string[] = [];
@@ -444,6 +450,7 @@ export async function confirmImport(
     revalidatePath("/");
     revalidatePath("/assets");
     revalidatePath("/audit");
+    revalidatePath("/taxes");
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

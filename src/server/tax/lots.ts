@@ -45,7 +45,11 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
     .select()
     .from(assetTransactions)
     .where(eq(assetTransactions.assetId, assetId))
-    .orderBy(asc(assetTransactions.tradedAt), asc(assetTransactions.id))
+    .orderBy(
+      asc(assetTransactions.tradedAt),
+      asc(assetTransactions.transactionType), // buys ("buy") before sells ("sell") on same timestamp
+      asc(assetTransactions.id),
+    )
     .all();
 
   const open: MutableLot[] = [];

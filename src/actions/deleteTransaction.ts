@@ -6,7 +6,7 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { accountCashMovements, accounts, assetTransactions, auditEvents } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
 import { recomputeLotsForAsset } from "../server/tax/lots";
 
@@ -46,8 +46,7 @@ export async function deleteTransaction(
         .from(accounts)
         .where(eq(accounts.id, previous.accountId))
         .get();
-      const tracksCash =
-        account?.accountType === "bank" || account?.accountType === "savings";
+      const tracksCash = isCashBearingAccount(account?.accountType ?? "");
 
       if (tracksCash) {
         tx
@@ -91,6 +90,7 @@ export async function deleteTransaction(
     revalidatePath("/");
     revalidatePath("/assets");
     revalidatePath("/audit");
+    revalidatePath("/taxes");
     return { ok: true, data: { id } };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

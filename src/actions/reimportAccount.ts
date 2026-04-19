@@ -13,6 +13,7 @@ import {
   taxWashSaleAdjustments,
 } from "../db/schema";
 import { recomputeLotsForAsset } from "../server/tax/lots";
+import { recomputeAccountCashBalance } from "../server/recompute";
 import { ACTOR, type ActionResult } from "./_shared";
 import { reimportAccountSchema } from "./reimportAccount.schema";
 
@@ -60,6 +61,8 @@ export async function reimportAccount(
       for (const assetId of assetIds) {
         recomputeLotsForAsset(tx, assetId);
       }
+      // Reset cash balance (no-op for non-savings accounts).
+      recomputeAccountCashBalance(tx, accountId);
 
       tx
         .insert(auditEvents)

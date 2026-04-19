@@ -13,7 +13,7 @@ import {
   auditEvents,
   type AssetTransaction,
 } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
 import { recomputeLotsForAsset } from "../server/tax/lots";
@@ -30,6 +30,7 @@ function revalidateTransactionPaths(accountId: string) {
   revalidatePath("/");
   revalidatePath("/assets");
   revalidatePath("/audit");
+  revalidatePath("/taxes");
 }
 
 export async function createTransaction(
@@ -131,8 +132,7 @@ export async function createTransaction(
       recomputeAssetPosition(tx, data.accountId, data.assetId);
       recomputeLotsForAsset(tx, data.assetId);
 
-      const tracksCash =
-        account.accountType === "bank" || account.accountType === "savings";
+      const tracksCash = isCashBearingAccount(account.accountType);
       if (tracksCash) {
         tx
           .insert(accountCashMovements)

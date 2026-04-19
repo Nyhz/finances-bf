@@ -7,7 +7,7 @@ import type {
 import type { CoinCandidate } from "../lib/pricing";
 
 export const previewImportSchema = z.object({
-  source: z.enum(["degiro", "binance", "cobas"]),
+  source: z.enum(["degiro", "degiro-statement", "binance", "cobas"]),
   accountId: z.string().min(1),
   csvText: z.string().min(1),
 });

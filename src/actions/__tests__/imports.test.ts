@@ -18,6 +18,16 @@ import { confirmImport } from "../confirmImport";
 import { parseDegiroCsv } from "../../lib/imports/degiro";
 import { ulid } from "ulid";
 
+// Minimal DEGIRO statement CSV: one dividend pair for UnitedHealth (USD) plus
+// the FX-conversion rows that allow the parser to derive fxRateToEurOverride.
+// FX column = native-per-EUR (1.1481 USD/EUR) → rateToEur = 1/1.1481 ≈ 0.8709
+const STATEMENT_DIV_CSV = `Date,Time,Value date,Product,ISIN,Description,FX,Change,,Balance,,Order Id
+19-03-2026,06:40,18-03-2026,,,Ingreso Cambio de Divisa,,EUR,"4,91",EUR,"115,16",
+19-03-2026,06:40,18-03-2026,,,Retirada Cambio de Divisa,"1,1481",USD,"-5,64",USD,"0,00",
+18-03-2026,07:03,17-03-2026,UNITEDHEALTH GROUP INC,US91324P1021,Dividendo,,USD,"6,63",USD,"5,64",
+18-03-2026,07:02,17-03-2026,UNITEDHEALTH GROUP INC,US91324P1021,Retención del dividendo,,USD,"-0,99",USD,"-0,99",
+`;
+
 const CSV = `Date,Time,Product,ISIN,Venue,Quantity,Price,Currency,Local value,Value,Exchange rate,Transaction costs,Total,Order ID
 02-01-2026,09:32,ASML HOLDING,NL0010273215,EAM,10,650.50,EUR,-6505.00,-6505.00,1,-2.00,-6507.00,ord-001
 15-01-2026,10:00,ASML HOLDING,NL0010273215,EAM,-3,700.00,EUR,2100.00,2100.00,1,-1.50,2098.50,ord-002
@@ -319,6 +329,76 @@ describe("previewImport — Binance crypto candidate lookup", () => {
       expect(g.candidates).toEqual([]);
       expect(g.error).toMatch(/429/);
     }
+  });
+});
+
+describe("confirmImport — degiro-statement dividend persistence", () => {
+  let db: DB;
+  let accountId: string;
+
+  beforeEach(async () => {
+    db = makeDb();
+    // Use a broker account so tracksCash is false — dividends go to
+    // asset_transactions, not accountCashMovements.
+    const acc = await createAccount(
+      { name: "DeGiro Broker", accountType: "broker", currency: "EUR", openingBalanceNative: 0 },
+      db,
+    );
+    if (!acc.ok) throw new Error("account setup");
+    accountId = acc.data.id;
+  });
+
+  it("inserts a dividend asset_transaction with correct mapping", async () => {
+    const res = await confirmImport(
+      { source: "degiro-statement", accountId, csvText: STATEMENT_DIV_CSV },
+      db,
+    );
+    if (!res.ok) throw new Error(`confirm failed: ${res.error.message}`);
+
+    expect(res.data.insertedDividends).toBe(1);
+    expect(res.data.insertedTrades).toBe(0);
+    expect(res.data.insertedCashMovements).toBe(0);
+    expect(res.data.createdAssets).toBe(1); // UnitedHealth auto-created
+
+    const rows = db.select().from(schema.assetTransactions).all();
+    expect(rows).toHaveLength(1);
+    const div = rows[0];
+
+    expect(div.transactionType).toBe("dividend");
+    expect(div.sourceCountry).toBe("US"); // inferred from ISIN US91324P1021
+    // fxRate derived from EUR leg (4.91) / USD leg (5.64) by deriveFxRate
+    const expectedFx = 4.91 / 5.64;
+    expect(div.fxRateToEur).toBeCloseTo(expectedFx, 4);
+    expect(div.tradeGrossAmount).toBeCloseTo(6.63, 4);
+    expect(div.tradeGrossAmountEur).toBeCloseTo(6.63 * expectedFx, 2);
+    // withholdingTax (origen EUR) = roundEur(0.99 * fxRate)
+    expect(div.withholdingTax).toBeGreaterThan(0);
+    expect(div.withholdingTax).toBeCloseTo(0.99 * expectedFx, 2);
+    expect(div.dividendGross).toBeCloseTo(6.63, 4);
+    // dividendNet = grossNative - withholdingOrigenNative = 6.63 - 0.99 = 5.64 (native)
+    expect(div.dividendNet).toBeCloseTo(5.64, 2);
+    expect(div.quantity).toBe(0);
+    expect(div.unitPrice).toBe(0);
+    expect(div.tradeCurrency).toBe("USD");
+    // rowFingerprint must be set (non-null)
+    expect(div.rowFingerprint).toBeTruthy();
+  });
+
+  it("deduplicates: second import of same dividend is skipped", async () => {
+    const first = await confirmImport(
+      { source: "degiro-statement", accountId, csvText: STATEMENT_DIV_CSV },
+      db,
+    );
+    expect(first.ok).toBe(true);
+    const second = await confirmImport(
+      { source: "degiro-statement", accountId, csvText: STATEMENT_DIV_CSV },
+      db,
+    );
+    if (!second.ok) throw new Error("second confirm failed");
+    expect(second.data.insertedDividends).toBe(0);
+    expect(second.data.skippedDuplicates).toBe(1);
+    // Still only one row in DB
+    expect(db.select().from(schema.assetTransactions).all()).toHaveLength(1);
   });
 });
 

@@ -7,7 +7,7 @@ import type {
 import type { CoinCandidate } from "../lib/pricing";
 
 export const previewImportSchema = z.object({
-  source: z.enum(["degiro", "binance", "cobas"]),
+  source: z.enum(["degiro", "degiro-statement", "binance", "cobas"]),
   accountId: z.string().min(1),
   csvText: z.string().min(1),
 });
@@ -18,7 +18,7 @@ export type PreviewRowStatus = "new" | "duplicate" | "needs_asset_creation";
 
 export type PreviewRow = {
   index: number;
-  kind: "trade" | "cash_movement";
+  kind: "trade" | "cash_movement" | "dividend";
   status: PreviewRowStatus;
   tradeDate: string;
   rowFingerprint: string;

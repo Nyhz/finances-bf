@@ -44,9 +44,9 @@ function rowLabel(row: PreviewRow): string {
 
 export function ImportWizard({ open, onOpenChange, accounts }: Props) {
   const [step, setStep] = React.useState<Step>("source");
-  const [source, setSource] = React.useState<"degiro" | "binance" | "cobas">(
-    "degiro",
-  );
+  const [source, setSource] = React.useState<
+    "degiro" | "degiro-statement" | "binance" | "cobas"
+  >("degiro");
   const [accountId, setAccountId] = React.useState<string>(
     accounts[0]?.id ?? "",
   );
@@ -176,7 +176,7 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
         if (!next) reset();
       }}
       title="Import CSV"
-      description="DEGIRO, Binance, or Cobas — three-step flow."
+      description="DEGIRO (transactions or account statement), Binance, or Cobas — three-step flow."
       footer={footer}
       className="max-w-3xl"
     >
@@ -187,11 +187,18 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
             <select
               value={source}
               onChange={(e) =>
-                setSource(e.target.value as "degiro" | "binance" | "cobas")
+                setSource(
+                  e.target.value as
+                    | "degiro"
+                    | "degiro-statement"
+                    | "binance"
+                    | "cobas",
+                )
               }
               className="h-10 rounded-md border border-border bg-background px-3 text-sm"
             >
-              <option value="degiro">DEGIRO</option>
+              <option value="degiro">DEGIRO — Transactions</option>
+              <option value="degiro-statement">DEGIRO — Account Statement</option>
               <option value="binance">Binance</option>
               <option value="cobas">Cobas</option>
             </select>

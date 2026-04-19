@@ -108,7 +108,7 @@ describe("createAccount action", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.openingBalanceEur).toBe(90);
-    expect(result.data.currentCashBalanceEur).toBe(90);
+    expect(result.data.currentCashBalanceEur).toBe(0);
 
     const audit = await db
       .select()

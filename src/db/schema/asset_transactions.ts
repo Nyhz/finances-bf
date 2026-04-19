@@ -29,6 +29,10 @@ export const assetTransactions = sqliteTable(
     dividendGross: real("dividend_gross"),
     dividendNet: real("dividend_net"),
     withholdingTax: real("withholding_tax"),
+    sourceCountry: text("source_country"),
+    isListed: integer("is_listed", { mode: "boolean" }).notNull().default(true),
+    // Withholding tax credited to Spanish treasury under a DDI treaty (destino). Counterpart of withholdingTax (origen).
+    withholdingTaxDestination: real("withholding_tax_destination"),
     linkedTransactionId: text("linked_transaction_id"),
     externalReference: text("external_reference"),
     rowFingerprint: text("row_fingerprint"),

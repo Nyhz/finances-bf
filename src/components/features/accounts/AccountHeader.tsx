@@ -3,6 +3,7 @@ import { KPICard } from "@/src/components/ui/KPICard";
 import { formatEur } from "@/src/lib/format";
 import type { Account } from "@/src/db/schema";
 import { isCashBearingAccount } from "@/src/actions/_shared";
+import { ReimportAccountButton } from "@/src/components/features/accounts/ReimportAccountButton";
 
 export type AccountHeaderProps = {
   account: Account;
@@ -26,12 +27,15 @@ export function AccountHeader({
             <Badge variant="neutral">{account.currency}</Badge>
           </div>
         </div>
-        <a
-          className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
-          href={`/api/exports/account-statement?accountId=${account.id}`}
-        >
-          Export statement
-        </a>
+        <div className="flex items-center gap-2">
+          <a
+            className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
+            href={`/api/exports/account-statement?accountId=${account.id}`}
+          >
+            Export statement
+          </a>
+          <ReimportAccountButton accountId={account.id} />
+        </div>
       </div>
 
       {(() => {

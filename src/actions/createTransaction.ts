@@ -13,10 +13,12 @@ import {
   auditEvents,
   type AssetTransaction,
 } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
+import { recomputeLotsForAsset } from "../server/tax/lots";
 import { fxRates } from "../db/schema";
+import { roundEur as round } from "../lib/money";
 
 import { createTransactionSchema } from "./createTransaction.schema";
 
@@ -28,6 +30,7 @@ function revalidateTransactionPaths(accountId: string) {
   revalidatePath("/");
   revalidatePath("/assets");
   revalidatePath("/audit");
+  revalidatePath("/taxes");
 }
 
 export async function createTransaction(
@@ -126,29 +129,33 @@ export async function createTransaction(
         })
         .run();
 
-      tx
-        .insert(accountCashMovements)
-        .values({
-          id: ulid(),
-          accountId: data.accountId,
-          movementType: "trade",
-          occurredAt: tradedAt,
-          nativeAmount: round(sign * tradeGrossAmount - data.fees),
-          currency,
-          fxRateToEur: rate,
-          cashImpactEur: round(cashImpactEur),
-          externalReference: id,
-          rowFingerprint: `trade:${id}`,
-          source: "manual",
-          description: `${data.side} ${data.quantity} ${asset.symbol ?? asset.name}`,
-          affectsCashBalance: true,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-
       recomputeAssetPosition(tx, data.accountId, data.assetId);
-      recomputeAccountCashBalance(tx, data.accountId);
+      recomputeLotsForAsset(tx, data.assetId);
+
+      const tracksCash = isCashBearingAccount(account.accountType);
+      if (tracksCash) {
+        tx
+          .insert(accountCashMovements)
+          .values({
+            id: ulid(),
+            accountId: data.accountId,
+            movementType: "trade",
+            occurredAt: tradedAt,
+            nativeAmount: round(sign * tradeGrossAmount - data.fees),
+            currency,
+            fxRateToEur: rate,
+            cashImpactEur: round(cashImpactEur),
+            externalReference: id,
+            rowFingerprint: `trade:${id}`,
+            source: "manual",
+            description: `${data.side} ${data.quantity} ${asset.symbol ?? asset.name}`,
+            affectsCashBalance: true,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        recomputeAccountCashBalance(tx, data.accountId);
+      }
 
       const row = tx
         .select()
@@ -186,8 +193,4 @@ export async function createTransaction(
     }
     return { ok: false, error: { code: "db", message } };
   }
-}
-
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
 }

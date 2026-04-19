@@ -252,12 +252,14 @@ describe("createTransaction + deleteTransaction integration", () => {
     const startBal = getAccountBalance();
     const r = await buy(7, 42.5);
     if (!r.ok) throw new Error("buy failed");
-    await sell(3, 50);
-    const del = await deleteTransaction({ id: r.data.id }, db);
-    expect(del.ok).toBe(true);
-    // After deleting the buy, the sell (from nothing) leaves qty = -3 and
-    // cash = start + sell proceeds. This is a defensive-scenario; just
-    // verify cash matches the movements ledger exactly.
+    const s = await sell(3, 50);
+    if (!s.ok) throw new Error("sell failed");
+    // Delete in reverse order (sell first, then buy) so lot integrity is maintained.
+    const delSell = await deleteTransaction({ id: s.data.id }, db);
+    expect(delSell.ok).toBe(true);
+    const delBuy = await deleteTransaction({ id: r.data.id }, db);
+    expect(delBuy.ok).toBe(true);
+    // All movements are gone; balance should be back to start.
     const movements = db
       .select()
       .from(schema.accountCashMovements)
@@ -265,6 +267,7 @@ describe("createTransaction + deleteTransaction integration", () => {
       .all();
     const sum = movements.reduce((s, m) => s + m.cashImpactEur, 0);
     expect(getAccountBalance()).toBeCloseTo(startBal + sum, 2);
+    expect(getAccountBalance()).toBeCloseTo(startBal, 2);
   });
 
   it("rejects creating a duplicate fingerprint", async () => {

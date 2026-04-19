@@ -3,8 +3,10 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
+import { ulid } from "ulid";
 import * as schema from "../db/schema";
 import type { DB } from "../db/client";
+import { recomputeLotsForAsset } from "./tax/lots";
 import {
   computeDividendAndInterestForYear,
   computeRealizedGainsForYear,
@@ -33,6 +35,7 @@ function seedAccountAndAsset(db: DB, opts?: { assetCurrency?: string }) {
       name: "ACME",
       assetType: "stock",
       currency: opts?.assetCurrency ?? "EUR",
+      assetClassTax: "listed_security",
     })
     .run();
 }
@@ -115,6 +118,7 @@ describe("computeRealizedGainsForYear — FIFO", () => {
       unitPrice: 25,
     });
 
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, "ast_1"); });
     const r = await computeRealizedGainsForYear(2026, db);
     expect(r.sales).toHaveLength(1);
     const s = r.sales[0];
@@ -152,6 +156,7 @@ describe("computeRealizedGainsForYear — FIFO", () => {
       unitPrice: 20,
     });
 
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, "ast_1"); });
     const r2026 = await computeRealizedGainsForYear(2026, db);
     expect(r2026.sales).toHaveLength(1);
     expect(r2026.sales[0].saleId).toBe("tx_s_2026");
@@ -204,6 +209,7 @@ describe("computeRealizedGainsForYear — FIFO", () => {
       fxRateToEur: 0.9,
     });
 
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, "ast_1"); });
     const r = await computeRealizedGainsForYear(2026, db);
     expect(r.sales).toHaveLength(1);
     const s = r.sales[0];
@@ -220,6 +226,41 @@ describe("computeDividendAndInterestForYear", () => {
     db.insert(schema.accounts)
       .values({ id: "acc_1", name: "B", currency: "EUR", accountType: "broker" })
       .run();
+    db.insert(schema.assets)
+      .values({
+        id: "ast_div",
+        name: "DIV CORP",
+        assetType: "equity",
+        currency: "EUR",
+        assetClassTax: "listed_security",
+      })
+      .run();
+
+    // Seed dividend transactions (50 + 30 = 80 EUR gross, all in 2026)
+    function insertDividend(id: string, when: number, grossEur: number) {
+      db.insert(schema.assetTransactions)
+        .values({
+          id,
+          accountId: "acc_1",
+          assetId: "ast_div",
+          transactionType: "dividend",
+          tradedAt: when,
+          quantity: 0,
+          unitPrice: 0,
+          tradeCurrency: "EUR",
+          fxRateToEur: 1,
+          tradeGrossAmount: grossEur,
+          tradeGrossAmountEur: grossEur,
+          cashImpactEur: grossEur,
+          feesAmount: 0,
+          feesAmountEur: 0,
+          netAmountEur: grossEur,
+          dividendGross: grossEur,
+          isListed: true,
+          source: "manual",
+        })
+        .run();
+    }
 
     function insertMovement(id: string, type: string, when: number, eur: number) {
       db.insert(schema.accountCashMovements)
@@ -236,11 +277,12 @@ describe("computeDividendAndInterestForYear", () => {
         .run();
     }
 
-    insertMovement("m1", "dividend", D("2026-03-01"), 50);
-    insertMovement("m2", "dividend", D("2026-07-01"), 30);
-    insertMovement("m3", "interest", D("2026-04-01"), 10);
+    insertDividend(ulid(), D("2026-03-01"), 50);
+    insertDividend(ulid(), D("2026-07-01"), 30);
     // Other year — ignored.
-    insertMovement("m4", "dividend", D("2025-06-01"), 999);
+    insertDividend(ulid(), D("2025-06-01"), 999);
+
+    insertMovement("m3", "interest", D("2026-04-01"), 10);
     // Other kind — ignored.
     insertMovement("m5", "deposit", D("2026-01-01"), 1000);
 

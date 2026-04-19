@@ -8,7 +8,7 @@ import { db as defaultDb, type DB } from "../db/client";
 import { accounts, auditEvents, fxRates, type Account } from "../db/schema";
 import { toIsoDate } from "../lib/fx";
 
-import { ACCOUNT_TYPES } from "./_shared";
+import { ACCOUNT_TYPES, isCashBearingAccount } from "./_shared";
 
 const ACTOR = "commander";
 
@@ -102,7 +102,7 @@ export async function createAccount(
           currency,
           accountType,
           openingBalanceEur,
-          currentCashBalanceEur: openingBalanceEur,
+          currentCashBalanceEur: isCashBearingAccount(accountType) ? openingBalanceEur : 0,
           createdAt: now,
           updatedAt: now,
         })

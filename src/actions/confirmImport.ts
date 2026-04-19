@@ -14,15 +14,19 @@ import {
   fxRates,
   type Asset,
 } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
+import { inferAssetClassTax } from "../server/tax/classification";
 import {
   recomputeAccountCashBalance,
   recomputeAssetPosition,
 } from "../server/recompute";
+import { recomputeLotsForAsset } from "../server/tax/lots";
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
+import { parseDegiroStatementCsv } from "../lib/imports/degiro-statement";
 import { assetHintKey } from "../lib/imports/_shared";
+import { roundEur } from "../lib/money";
 import type {
   AssetHint,
   ImportSource,
@@ -35,13 +39,11 @@ import { confirmImportSchema, type ConfirmImportResult } from "./confirmImport.s
 
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
+  if (source === "degiro-statement") return parseDegiroStatementCsv(csvText);
   if (source === "binance") return parseBinanceCsv(csvText);
   return parseCobasCsv(csvText);
 }
 
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 function findAsset(tx: Tx, hint: AssetHint | null | undefined): Asset | null {
   if (!hint) return null;
@@ -105,12 +107,18 @@ function autoCreateAsset(
   const now = Date.now();
   const id = ulid();
   const name = hint.name || hint.symbol || hint.isin || "Unknown";
+  const assetType = source === "binance" ? "crypto" : "other";
   tx
     .insert(assets)
     .values({
       id,
       name,
-      assetType: source === "binance" ? "crypto" : "other",
+      assetType,
+      assetClassTax: inferAssetClassTax({
+        assetType,
+        name: hint.name,
+        isin: hint.isin,
+      }),
       symbol: hint.symbol ?? null,
       isin: hint.isin ?? null,
       currency,
@@ -147,6 +155,7 @@ function insertTrade(
   assetId: string,
   row: Extract<ParsedImportRow, { kind: "trade" }>,
   source: ImportSource,
+  tracksCash: boolean,
 ): void {
   const rate =
     row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
@@ -154,10 +163,10 @@ function insertTrade(
       : resolveFx(tx, row.currency, row.tradeDate);
   const sign = row.side === "buy" ? -1 : 1;
   const tradeGrossAmount = row.quantity * row.priceNative;
-  const tradeGrossAmountEur = round(tradeGrossAmount * rate);
+  const tradeGrossAmountEur = roundEur(tradeGrossAmount * rate);
   const fees = row.fees ?? 0;
-  const feesAmountEur = row.feesAlreadyEur ? round(fees) : round(fees * rate);
-  const cashImpactEur = sign * round(tradeGrossAmountEur) - feesAmountEur;
+  const feesAmountEur = row.feesAlreadyEur ? roundEur(fees) : roundEur(fees * rate);
+  const cashImpactEur = sign * roundEur(tradeGrossAmountEur) - feesAmountEur;
   const tradedAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
   const id = ulid();
   const now = Date.now();
@@ -173,12 +182,12 @@ function insertTrade(
       unitPrice: row.priceNative,
       tradeCurrency: row.currency,
       fxRateToEur: rate,
-      tradeGrossAmount: round(tradeGrossAmount),
+      tradeGrossAmount: roundEur(tradeGrossAmount),
       tradeGrossAmountEur,
-      cashImpactEur: round(cashImpactEur),
+      cashImpactEur: roundEur(cashImpactEur),
       feesAmount: fees,
       feesAmountEur,
-      netAmountEur: round(cashImpactEur),
+      netAmountEur: roundEur(cashImpactEur),
       rowFingerprint: row.rowFingerprint,
       source,
       createdAt: now,
@@ -186,25 +195,27 @@ function insertTrade(
       rawPayload: JSON.stringify(row.rawRow),
     })
     .run();
-  tx
-    .insert(accountCashMovements)
-    .values({
-      id: ulid(),
-      accountId,
-      movementType: "trade",
-      occurredAt: tradedAt,
-      nativeAmount: round(sign * tradeGrossAmount - fees),
-      currency: row.currency,
-      fxRateToEur: rate,
-      cashImpactEur: round(cashImpactEur),
-      externalReference: id,
-      rowFingerprint: `trade:${id}`,
-      source,
-      affectsCashBalance: true,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  if (tracksCash) {
+    tx
+      .insert(accountCashMovements)
+      .values({
+        id: ulid(),
+        accountId,
+        movementType: "trade",
+        occurredAt: tradedAt,
+        nativeAmount: roundEur(sign * tradeGrossAmount - fees),
+        currency: row.currency,
+        fxRateToEur: rate,
+        cashImpactEur: roundEur(cashImpactEur),
+        externalReference: id,
+        rowFingerprint: `trade:${id}`,
+        source,
+        affectsCashBalance: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
 }
 
 function insertCashMovement(
@@ -214,7 +225,7 @@ function insertCashMovement(
   source: ImportSource,
 ): void {
   const rate = resolveFx(tx, row.currency, row.tradeDate);
-  const cashImpactEur = Math.round(row.amountNative * rate * 100) / 100;
+  const cashImpactEur = roundEur(row.amountNative * rate);
   const occurredAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
   const now = Date.now();
   tx
@@ -231,6 +242,57 @@ function insertCashMovement(
       rowFingerprint: row.rowFingerprint,
       source,
       affectsCashBalance: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function insertDividend(
+  tx: Tx,
+  accountId: string,
+  assetId: string,
+  row: Extract<ParsedImportRow, { kind: "dividend" }>,
+  source: ImportSource,
+): void {
+  const fxRate =
+    row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
+      ? row.fxRateToEurOverride
+      : resolveFx(tx, row.currency, row.tradeDate);
+  const grossEur = roundEur(row.grossNative * fxRate);
+  const whtOrigenEur = roundEur(row.withholdingOrigenNative * fxRate);
+  const whtDestinoEur = row.withholdingDestinoEur ?? 0;
+  const netEur = roundEur(grossEur - whtOrigenEur - whtDestinoEur);
+  const tradedAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
+  const now = Date.now();
+  const id = ulid();
+  tx
+    .insert(assetTransactions)
+    .values({
+      id,
+      accountId,
+      assetId,
+      transactionType: "dividend",
+      tradedAt,
+      quantity: 0,
+      unitPrice: 0,
+      tradeCurrency: row.currency,
+      fxRateToEur: fxRate,
+      tradeGrossAmount: row.grossNative,
+      tradeGrossAmountEur: grossEur,
+      cashImpactEur: netEur,
+      feesAmount: 0,
+      feesAmountEur: 0,
+      netAmountEur: netEur,
+      dividendGross: row.grossNative,
+      dividendNet: roundEur(row.grossNative - row.withholdingOrigenNative),
+      withholdingTax: whtOrigenEur,
+      withholdingTaxDestination: whtDestinoEur > 0 ? whtDestinoEur : null,
+      sourceCountry: row.sourceCountry ?? null,
+      isListed: true,
+      rowFingerprint: row.rowFingerprint,
+      source,
+      rawPayload: JSON.stringify(row.rawRow),
       createdAt: now,
       updatedAt: now,
     })
@@ -267,10 +329,13 @@ export async function confirmImport(
         .get();
       if (!account) throw new Error(`account not found: ${accountId}`);
 
+      const tracksCash = isCashBearingAccount(account.accountType);
+
       const touchedAssets = new Set<string>();
       const fingerprints: string[] = [];
       let insertedTrades = 0;
       let insertedCashMovements = 0;
+      let insertedDividends = 0;
       let skippedDuplicates = 0;
       let createdAssets = 0;
 
@@ -302,23 +367,39 @@ export async function confirmImport(
             );
             createdAssets++;
           }
-          insertTrade(tx, accountId, asset.id, row, source);
+          insertTrade(tx, accountId, asset.id, row, source, tracksCash);
           touchedAssets.add(asset.id);
           insertedTrades++;
           fingerprints.push(row.rowFingerprint);
+        } else if (row.kind === "cash_movement") {
+          if (tracksCash) {
+            insertCashMovement(tx, accountId, row, source);
+            insertedCashMovements++;
+          }
+          fingerprints.push(row.rowFingerprint);
         } else {
-          insertCashMovement(tx, accountId, row, source);
-          insertedCashMovements++;
+          // row.kind === "dividend" — persist as asset_transaction with type "dividend"
+          let asset: Asset | null = findAsset(tx, row.assetHint);
+          if (!asset) {
+            asset = autoCreateAsset(tx, row.assetHint, row.currency, source);
+            createdAssets++;
+          }
+          insertDividend(tx, accountId, asset.id, row, source);
+          touchedAssets.add(asset.id);
+          insertedDividends++;
           fingerprints.push(row.rowFingerprint);
         }
       });
 
       for (const assetId of touchedAssets) {
         recomputeAssetPosition(tx, accountId, assetId);
+        recomputeLotsForAsset(tx, assetId);
       }
-      recomputeAccountCashBalance(tx, accountId);
+      if (tracksCash) {
+        recomputeAccountCashBalance(tx, accountId);
+      }
 
-      const inserted = insertedTrades + insertedCashMovements;
+      const inserted = insertedTrades + insertedCashMovements + insertedDividends;
       const summary = `${source} import: ${inserted} inserted, ${skippedDuplicates} duplicates, ${createdAssets} new assets`;
       const importId = ulid();
       tx
@@ -338,6 +419,7 @@ export async function confirmImport(
             inserted,
             insertedTrades,
             insertedCashMovements,
+            insertedDividends,
             skippedDuplicates,
             skippedErrors: parseResult.errors.length,
             createdAssets,
@@ -352,6 +434,7 @@ export async function confirmImport(
         inserted,
         insertedTrades,
         insertedCashMovements,
+        insertedDividends,
         skippedDuplicates,
         skippedErrors: parseResult.errors.length,
         createdAssets,
@@ -367,6 +450,7 @@ export async function confirmImport(
     revalidatePath("/");
     revalidatePath("/assets");
     revalidatePath("/audit");
+    revalidatePath("/taxes");
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

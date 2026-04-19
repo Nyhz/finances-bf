@@ -11,6 +11,7 @@ import { listAssets } from "@/src/server/assets";
 import { formatEur, formatDateTime } from "@/src/lib/format";
 import type { AssetTransaction } from "@/src/db/schema";
 import { TransactionsNewButton } from "@/src/components/features/transactions/TransactionsNewButton";
+import { TransactionsExtraActions } from "@/src/components/features/transactions/TransactionsExtraActions";
 import { DeleteTransactionButton } from "@/src/components/features/transactions/DeleteTransactionButton";
 
 type SearchParams = Promise<{ cursor?: string }>;
@@ -43,25 +44,31 @@ export default async function TransactionsPage({
             Unified timeline of trades and cash movements.
           </p>
         </div>
-        <TransactionsNewButton
-          accounts={accounts
-            .filter((a) => a.accountType !== "savings")
-            .map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
-          assets={assets.map((a) => ({
-            id: a.id,
-            name: a.name,
-            symbol: a.symbol ?? null,
-            currency: a.currency,
-          }))}
-          cashAccounts={accounts
-            .filter((a) => a.accountType === "savings")
-            .map((a) => ({
+        <div className="flex items-center gap-2">
+          <TransactionsExtraActions
+            accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+            assets={assets.map((a) => ({ id: a.id, name: a.name }))}
+          />
+          <TransactionsNewButton
+            accounts={accounts
+              .filter((a) => a.accountType !== "savings")
+              .map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
+            assets={assets.map((a) => ({
               id: a.id,
               name: a.name,
+              symbol: a.symbol ?? null,
               currency: a.currency,
-              accountType: a.accountType,
             }))}
-        />
+            cashAccounts={accounts
+              .filter((a) => a.accountType === "savings")
+              .map((a) => ({
+                id: a.id,
+                name: a.name,
+                currency: a.currency,
+                accountType: a.accountType,
+              }))}
+          />
+        </div>
       </header>
 
       {result.items.length === 0 && !cursor ? (

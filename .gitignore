@@ -50,3 +50,6 @@ next-env.d.ts
 
 # DEVROOM scratch (debrief drop, etc.)
 .devroom/
+
+# local import statements
+/statement.csv

@@ -5,10 +5,11 @@ import { buildTaxReport } from "@/src/server/tax/report";
 import { computeDriftSinceSeal, getSnapshot } from "@/src/server/tax/seals";
 import { computeInformationalModelsStatus } from "@/src/server/tax/m720";
 import { aggregateBlocksFromBalances } from "@/src/server/tax/m720Aggregate";
-import { getTaxYears } from "@/src/server/taxes";
+import { getTaxYears, computeDividendAndInterestForYear } from "@/src/server/taxes";
 import { db } from "@/src/db/client";
 import { TaxesHeader } from "@/src/components/features/taxes/TaxesHeader";
 import { DriftBanner } from "@/src/components/features/taxes/DriftBanner";
+import { TaxKpiRow } from "@/src/components/features/taxes/TaxKpiRow";
 
 type Params = Promise<{ year: string }>;
 
@@ -29,11 +30,13 @@ export default async function TaxYearPage({ params }: { params: Params }) {
     : computeInformationalModelsStatus(db, year, blocks);
   const drift = computeDriftSinceSeal(db, year);
   const years = await getTaxYears();
+  const divInt = await computeDividendAndInterestForYear(year);
 
   return (
     <div className="flex flex-col gap-6 p-8">
       <TaxesHeader year={year} availableYears={years} sealed={snapshot != null} />
       {drift ? <DriftBanner drift={drift} /> : null}
+      <TaxKpiRow report={report} interestEur={divInt.interestEur} />
       <pre className="text-xs opacity-60 overflow-auto rounded-md border border-border p-4">
         {JSON.stringify({ year, totals: report.totals, models, drift, yearsAvailable: years }, null, 2)}
       </pre>

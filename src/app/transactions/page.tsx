@@ -116,6 +116,16 @@ export default async function TransactionsPage({
               ),
             },
             {
+              key: "fx",
+              header: "FX → EUR",
+              align: "right",
+              cell: (r) => (
+                <span className="tabular-nums text-xs text-muted-foreground">
+                  {r.tradeCurrency === "EUR" ? "—" : r.fxRateToEur.toFixed(6)}
+                </span>
+              ),
+            },
+            {
               key: "total",
               header: "Total (EUR)",
               align: "right",

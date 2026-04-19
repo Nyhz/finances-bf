@@ -82,6 +82,13 @@ export type TaxReport = {
   };
 };
 
+// Dust threshold: disposals where both proceeds and cost basis are below €1 are
+// excluded from the tax report. Typical source: crypto exchange fees paid in
+// the asset itself (Binance BNB fee deductions create tiny "sells"). Hacienda
+// would technically count these as disposals (DGT V1069-19) but the tax impact
+// is essentially zero and they drown out meaningful sales in the report.
+export const DUST_THRESHOLD_EUR = 1;
+
 function yearBounds(year: number): { start: number; end: number } {
   return { start: Date.UTC(year, 0, 1), end: Date.UTC(year + 1, 0, 1) };
 }
@@ -155,6 +162,14 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     });
   }
 
+  const visibleSales = sales
+    .filter(
+      (s) =>
+        Math.abs(s.proceedsEur) >= DUST_THRESHOLD_EUR ||
+        Math.abs(s.costBasisEur) >= DUST_THRESHOLD_EUR,
+    )
+    .sort((a, b) => a.tradedAt - b.tradedAt);
+
   const dividendRows = db
     .select()
     .from(assetTransactions)
@@ -192,7 +207,7 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
   let proceedsEur = 0;
   let costBasisEur = 0;
   let feesEur = 0;
-  for (const s of sales) {
+  for (const s of visibleSales) {
     if (s.computableGainLossEur >= 0) realizedGainsEur += s.computableGainLossEur;
     else realizedLossesComputableEur += s.computableGainLossEur;
     nonComputableLossesEur += s.nonComputableLossEur;
@@ -249,7 +264,7 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
 
   return {
     year,
-    sales,
+    sales: visibleSales,
     dividends,
     yearEndBalances,
     totals: {

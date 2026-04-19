@@ -80,5 +80,10 @@ describe("buildTaxReport", () => {
     expect(report.dividends[0].grossEur).toBeCloseTo(6.10, 2);
     expect(report.dividends[0].withholdingOrigenEur).toBeCloseTo(0.91, 2);
     expect(report.totals.dividendsGrossEur).toBeCloseTo(6.10, 2);
+
+    expect(report.yearEndBalances).toBeDefined();
+    expect(Array.isArray(report.yearEndBalances)).toBe(true);
+    const unh = report.yearEndBalances.find((b) => b.isin === "US91324P1021");
+    expect(unh).toBeUndefined();
   });
 });

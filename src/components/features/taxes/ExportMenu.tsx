@@ -12,6 +12,7 @@ export function ExportMenu({ year }: Props) {
     { label: "Casillas CSV (Modelo 100 paste)", href: `/api/exports/tax/casillas?year=${year}` },
     { label: "Detail CSV (comprobación dossier)", href: `/api/exports/tax/detail?year=${year}` },
     { label: "Modelo 720 diff (JSON)", href: `/api/exports/tax/m720-diff?year=${year}&format=json` },
+    { label: "Modelo 720 diff (CSV)", href: `/api/exports/tax/m720-diff?year=${year}&format=csv` },
   ];
   return (
     <div className="relative">

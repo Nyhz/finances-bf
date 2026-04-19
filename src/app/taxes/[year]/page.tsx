@@ -26,12 +26,8 @@ export default async function TaxYearPage({ params }: { params: Params }) {
   const snapshot = getSnapshot(db, year);
   const report = snapshot?.payload.report ?? buildTaxReport(db, year);
   const blocks = aggregateBlocksFromBalances(report.yearEndBalances);
-  const models = snapshot
-    ? {
-        m720: (snapshot.payload as { m720: unknown }).m720,
-        m721: (snapshot.payload as { m721: unknown }).m721,
-        d6: (snapshot.payload as { d6: unknown }).d6,
-      }
+  const models: InformationalModelsStatus = snapshot
+    ? snapshot.payload
     : computeInformationalModelsStatus(db, year, blocks);
   const drift = computeDriftSinceSeal(db, year);
   const years = await getTaxYears();
@@ -44,7 +40,7 @@ export default async function TaxYearPage({ params }: { params: Params }) {
       <TaxKpiRow report={report} interestEur={interestEur} />
       <GainsTable sales={report.sales} />
       <DividendsTable dividends={report.dividends} />
-      <YearEndCard models={models as InformationalModelsStatus} />
+      <YearEndCard models={models} />
     </div>
   );
 }

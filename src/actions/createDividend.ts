@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
-import { accounts, assets, assetTransactions, auditEvents } from "../db/schema";
+import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
 import { recomputeLotsForAsset } from "../server/tax/lots";
+import { recomputeAssetPosition, recomputeAccountCashBalance } from "../server/recompute";
 import { roundEur } from "../lib/money";
 import { createDividendSchema } from "./createDividend.schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
 
 export async function createDividend(
   input: unknown,
@@ -51,6 +52,28 @@ export async function createDividend(
       }).run();
 
       recomputeLotsForAsset(tx, data.assetId);
+      recomputeAssetPosition(tx, data.accountId, data.assetId);
+
+      if (isCashBearingAccount(account.accountType)) {
+        tx.insert(accountCashMovements).values({
+          id: ulid(),
+          accountId: data.accountId,
+          movementType: "dividend",
+          occurredAt: tradedAt,
+          nativeAmount: data.grossNative - data.withholdingOrigenNative,
+          currency: data.currency,
+          fxRateToEur: fxRate,
+          cashImpactEur: netEur,
+          externalReference: id,
+          rowFingerprint: `dividend:${id}`,
+          source: "manual",
+          description: `dividend ${asset.name}`,
+          affectsCashBalance: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }).run();
+        recomputeAccountCashBalance(tx, data.accountId);
+      }
 
       tx.insert(auditEvents).values({
         id: ulid(),

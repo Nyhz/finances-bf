@@ -7,8 +7,6 @@ export const createSwapSchema = z.object({
   incomingAssetId: z.string().min(1),
   incomingQuantity: z.number().positive(),
   valueEur: z.number().positive(),
-  feeAssetId: z.string().min(1).optional(),
-  feeQuantity: z.number().nonnegative().optional(),
   notes: z.string().trim().max(500).optional(),
 });
 export type CreateSwapInput = z.input<typeof createSwapSchema>;

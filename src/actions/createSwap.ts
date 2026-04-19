@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
-import { accounts, assets, assetTransactions, auditEvents } from "../db/schema";
+import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
 import { recomputeLotsForAsset } from "../server/tax/lots";
+import { recomputeAssetPosition, recomputeAccountCashBalance } from "../server/recompute";
 import { createSwapSchema } from "./createSwap.schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
 
 export async function createSwap(
   input: unknown,
@@ -59,8 +60,33 @@ export async function createSwap(
         notes: data.notes ?? `swap ← ${outgoing.name}`,
       }).run();
 
+      recomputeAssetPosition(tx, data.accountId, data.outgoingAssetId);
+      recomputeAssetPosition(tx, data.accountId, data.incomingAssetId);
       recomputeLotsForAsset(tx, data.outgoingAssetId);
       recomputeLotsForAsset(tx, data.incomingAssetId);
+
+      if (isCashBearingAccount(account.accountType)) {
+        // A swap nets to zero cash (value out equals value in), so record a zero cash movement
+        // for traceability and trigger balance recompute.
+        tx.insert(accountCashMovements).values({
+          id: ulid(),
+          accountId: data.accountId,
+          movementType: "trade",
+          occurredAt: tradedAt,
+          nativeAmount: 0,
+          currency: "EUR",
+          fxRateToEur: 1,
+          cashImpactEur: 0,
+          externalReference: sellId,
+          rowFingerprint: `swap:${sellId}`,
+          source: "manual",
+          description: `swap ${outgoing.name} → ${incoming.name}`,
+          affectsCashBalance: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }).run();
+        recomputeAccountCashBalance(tx, data.accountId);
+      }
 
       tx.insert(auditEvents).values({
         id: ulid(),

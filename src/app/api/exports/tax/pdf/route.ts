@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const snapshot = getSnapshot(db, year);
   const report = snapshot?.payload.report ?? buildTaxReport(db, year);
   const models: InformationalModelsStatus = snapshot
-    ? (snapshot.payload as unknown as InformationalModelsStatus)
+    ? snapshot.payload
     : computeInformationalModelsStatus(db, year, aggregateBlocksFromBalances(report.yearEndBalances));
   const pdf = buildTaxReportPdf({
     year,

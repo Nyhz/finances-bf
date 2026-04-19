@@ -2,11 +2,12 @@ import { eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { taxYearSnapshots } from "../../db/schema";
 import { buildTaxReport, type TaxReport } from "./report";
+import type { InformationalModelsStatus } from "./m720";
 
 export type Snapshot = {
   year: number;
   sealedAt: number;
-  payload: { report: TaxReport; m720?: unknown; m721?: unknown; d6?: unknown };
+  payload: { report: TaxReport } & InformationalModelsStatus;
 };
 
 export type DriftReport = {

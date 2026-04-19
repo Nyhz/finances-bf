@@ -1,6 +1,6 @@
 "use client";
 
-import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
+import { Area, AreaChart, YAxis } from "recharts";
 
 type Point = {
   date: string;
@@ -44,11 +44,12 @@ export function PositionSparkline({ data, id }: { data: Point[]; id: string }) {
 
   return (
     <div className="h-12 w-56">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart
-          data={series}
-          margin={{ top: 2, right: 0, bottom: 2, left: 0 }}
-        >
+      <AreaChart
+        width={224}
+        height={48}
+        data={series}
+        margin={{ top: 2, right: 0, bottom: 2, left: 0 }}
+      >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={stroke} stopOpacity={0.38} />
@@ -66,8 +67,7 @@ export function PositionSparkline({ data, id }: { data: Point[]; id: string }) {
             dot={false}
             activeDot={false}
           />
-        </AreaChart>
-      </ResponsiveContainer>
+      </AreaChart>
     </div>
   );
 }

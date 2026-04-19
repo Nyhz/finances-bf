@@ -8,6 +8,7 @@ import {
   taxLots,
   taxWashSaleAdjustments,
 } from "../../db/schema";
+import { checkSaleAtLoss } from "./washSale";
 
 type MutableLot = {
   id: string;
@@ -42,6 +43,9 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
     .all();
 
   const open: MutableLot[] = [];
+  // Collect sell P&L data for wash-sale second pass (must run after all lots are created).
+  type SaleRecord = { row: (typeof rows)[number]; consumedCostEur: number };
+  const saleRecords: SaleRecord[] = [];
 
   for (const row of rows) {
     if (row.transactionType === "buy") {
@@ -118,5 +122,13 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
         tx.update(taxLots).set({ remainingQty: 0, deferredLossAddedEur: 0 }).where(eq(taxLots.id, c.lotId)).run();
       }
     }
+
+    saleRecords.push({ row, consumedCostEur: consumptions.reduce((s, c) => s + c.cost, 0) });
+  }
+
+  // 3. Second pass: wash-sale detection (runs after all lots are committed so
+  //    future repurchase lots are visible in the DB).
+  for (const { row, consumedCostEur } of saleRecords) {
+    checkSaleAtLoss(tx, row, row.tradeGrossAmountEur, consumedCostEur, row.feesAmountEur);
   }
 }

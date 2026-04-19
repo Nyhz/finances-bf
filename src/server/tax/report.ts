@@ -87,6 +87,9 @@ export type TaxReport = {
 // the asset itself (Binance BNB fee deductions create tiny "sells"). Hacienda
 // would technically count these as disposals (DGT V1069-19) but the tax impact
 // is essentially zero and they drown out meaningful sales in the report.
+// Rows with exactly €0 proceeds are always excluded — those are import artifacts
+// (fees paid in BNB etc.) that the importer failed to assign an EUR value to,
+// not real disposals intentionally made by the user.
 export const DUST_THRESHOLD_EUR = 1;
 
 function yearBounds(year: number): { start: number; end: number } {
@@ -163,11 +166,17 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
   }
 
   const visibleSales = sales
-    .filter(
-      (s) =>
-        Math.abs(s.proceedsEur) >= DUST_THRESHOLD_EUR ||
-        Math.abs(s.costBasisEur) >= DUST_THRESHOLD_EUR,
-    )
+    .filter((s) => {
+      // Import artifact: no EUR proceeds means this is a fee-disposal synthesised
+      // by the Binance parser, not a real sale. Always exclude regardless of size.
+      if (s.proceedsEur === 0) return false;
+      // Dust: both sides tiny.
+      if (
+        Math.abs(s.proceedsEur) < DUST_THRESHOLD_EUR &&
+        Math.abs(s.costBasisEur) < DUST_THRESHOLD_EUR
+      ) return false;
+      return true;
+    })
     .sort((a, b) => a.tradedAt - b.tradedAt);
 
   const dividendRows = db

@@ -5,9 +5,10 @@ import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
-import { accountCashMovements, assetTransactions, auditEvents } from "../db/schema";
+import { accountCashMovements, accounts, assetTransactions, auditEvents } from "../db/schema";
 import { ACTOR, type ActionResult } from "./_shared";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
+import { recomputeLotsForAsset } from "../server/tax/lots";
 
 import { deleteTransactionSchema } from "./deleteTransaction.schema";
 
@@ -40,15 +41,28 @@ export async function deleteTransaction(
         .get();
       if (!previous) throw new Error(`transaction not found: ${id}`);
 
-      tx
-        .delete(accountCashMovements)
-        .where(eq(accountCashMovements.externalReference, id))
-        .run();
+      const account = tx
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, previous.accountId))
+        .get();
+      const tracksCash =
+        account?.accountType === "bank" || account?.accountType === "savings";
+
+      if (tracksCash) {
+        tx
+          .delete(accountCashMovements)
+          .where(eq(accountCashMovements.externalReference, id))
+          .run();
+      }
 
       tx.delete(assetTransactions).where(eq(assetTransactions.id, id)).run();
 
       recomputeAssetPosition(tx, previous.accountId, previous.assetId);
-      recomputeAccountCashBalance(tx, previous.accountId);
+      recomputeLotsForAsset(tx, previous.assetId);
+      if (tracksCash) {
+        recomputeAccountCashBalance(tx, previous.accountId);
+      }
 
       tx
         .insert(auditEvents)

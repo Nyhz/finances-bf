@@ -19,6 +19,7 @@ import {
   recomputeAccountCashBalance,
   recomputeAssetPosition,
 } from "../server/recompute";
+import { recomputeLotsForAsset } from "../server/tax/lots";
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
@@ -147,6 +148,7 @@ function insertTrade(
   assetId: string,
   row: Extract<ParsedImportRow, { kind: "trade" }>,
   source: ImportSource,
+  tracksCash: boolean,
 ): void {
   const rate =
     row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
@@ -186,25 +188,27 @@ function insertTrade(
       rawPayload: JSON.stringify(row.rawRow),
     })
     .run();
-  tx
-    .insert(accountCashMovements)
-    .values({
-      id: ulid(),
-      accountId,
-      movementType: "trade",
-      occurredAt: tradedAt,
-      nativeAmount: round(sign * tradeGrossAmount - fees),
-      currency: row.currency,
-      fxRateToEur: rate,
-      cashImpactEur: round(cashImpactEur),
-      externalReference: id,
-      rowFingerprint: `trade:${id}`,
-      source,
-      affectsCashBalance: true,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  if (tracksCash) {
+    tx
+      .insert(accountCashMovements)
+      .values({
+        id: ulid(),
+        accountId,
+        movementType: "trade",
+        occurredAt: tradedAt,
+        nativeAmount: round(sign * tradeGrossAmount - fees),
+        currency: row.currency,
+        fxRateToEur: rate,
+        cashImpactEur: round(cashImpactEur),
+        externalReference: id,
+        rowFingerprint: `trade:${id}`,
+        source,
+        affectsCashBalance: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
 }
 
 function insertCashMovement(
@@ -267,6 +271,9 @@ export async function confirmImport(
         .get();
       if (!account) throw new Error(`account not found: ${accountId}`);
 
+      const tracksCash =
+        account.accountType === "bank" || account.accountType === "savings";
+
       const touchedAssets = new Set<string>();
       const fingerprints: string[] = [];
       let insertedTrades = 0;
@@ -302,21 +309,26 @@ export async function confirmImport(
             );
             createdAssets++;
           }
-          insertTrade(tx, accountId, asset.id, row, source);
+          insertTrade(tx, accountId, asset.id, row, source, tracksCash);
           touchedAssets.add(asset.id);
           insertedTrades++;
           fingerprints.push(row.rowFingerprint);
         } else {
-          insertCashMovement(tx, accountId, row, source);
-          insertedCashMovements++;
+          if (tracksCash) {
+            insertCashMovement(tx, accountId, row, source);
+            insertedCashMovements++;
+          }
           fingerprints.push(row.rowFingerprint);
         }
       });
 
       for (const assetId of touchedAssets) {
         recomputeAssetPosition(tx, accountId, assetId);
+        recomputeLotsForAsset(tx, assetId);
       }
-      recomputeAccountCashBalance(tx, accountId);
+      if (tracksCash) {
+        recomputeAccountCashBalance(tx, accountId);
+      }
 
       const inserted = insertedTrades + insertedCashMovements;
       const summary = `${source} import: ${inserted} inserted, ${skippedDuplicates} duplicates, ${createdAssets} new assets`;

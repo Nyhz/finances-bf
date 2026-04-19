@@ -5,7 +5,8 @@ import { buildTaxReport } from "@/src/server/tax/report";
 import { computeDriftSinceSeal, getSnapshot } from "@/src/server/tax/seals";
 import { computeInformationalModelsStatus } from "@/src/server/tax/m720";
 import { aggregateBlocksFromBalances } from "@/src/server/tax/m720Aggregate";
-import { getTaxYears, computeDividendAndInterestForYear } from "@/src/server/taxes";
+import { getTaxYears } from "@/src/server/tax/years";
+import { getInterestForYear } from "@/src/server/tax/interest";
 import { db } from "@/src/db/client";
 import { TaxesHeader } from "@/src/components/features/taxes/TaxesHeader";
 import { DriftBanner } from "@/src/components/features/taxes/DriftBanner";
@@ -34,13 +35,13 @@ export default async function TaxYearPage({ params }: { params: Params }) {
     : computeInformationalModelsStatus(db, year, blocks);
   const drift = computeDriftSinceSeal(db, year);
   const years = await getTaxYears();
-  const divInt = await computeDividendAndInterestForYear(year);
+  const interestEur = await getInterestForYear(year);
 
   return (
     <div className="flex flex-col gap-6 p-8">
       <TaxesHeader year={year} availableYears={years} sealed={snapshot != null} />
       {drift ? <DriftBanner drift={drift} /> : null}
-      <TaxKpiRow report={report} interestEur={divInt.interestEur} />
+      <TaxKpiRow report={report} interestEur={interestEur} />
       <GainsTable sales={report.sales} />
       <DividendsTable dividends={report.dividends} />
       <YearEndCard models={models as InformationalModelsStatus} />

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getTaxYears } from "@/src/server/taxes";
+import { getTaxYears } from "@/src/server/tax/years";
 
 export const dynamic = "force-dynamic";
 

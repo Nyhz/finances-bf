@@ -1,5 +1,17 @@
 import { createHash } from "node:crypto";
-import { normaliseDate, parseCsv, parseDecimal } from "./_shared";
+import { normaliseDate, parseCsv } from "./_shared";
+
+// DEGIRO is always European locale: '.' = thousands, ',' = decimal. The generic
+// parseDecimal in _shared.ts can't disambiguate "2.250" (2250 in EU, 2.25 in US),
+// so we parse strictly here.
+function parseDecimal(raw: string | undefined | null): number | null {
+  if (raw == null) return null;
+  const s = raw.trim();
+  if (s === "") return null;
+  const cleaned = s.replace(/[^\d,\-+.]/g, "").replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
 import { countryFromIsin } from "../../server/tax/countries";
 import type {
   ImportParseError,

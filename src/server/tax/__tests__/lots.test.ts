@@ -100,7 +100,23 @@ describe("recomputeLotsForAsset", () => {
     const second = db.select().from(taxLots).all();
 
     expect(second).toHaveLength(first.length);
-    expect(second[0].remainingQty).toBe(first[0].remainingQty);
+    const projection = (rows: typeof first) => rows.map((r) => ({
+      remainingQty: r.remainingQty,
+      unitCostEur: r.unitCostEur,
+      originalQty: r.originalQty,
+      originTransactionId: r.originTransactionId,
+    }));
+    expect(projection(second)).toEqual(projection(first));
+  });
+
+  it("throws when a sell exceeds available lots", () => {
+    const db = makeDb();
+    const { accountId, assetId } = seed(db);
+    insertTrade(db, accountId, assetId, { type: "buy",  qty: 5,  unitPriceEur: 100, feesEur: 0, tradedAt: Date.UTC(2025, 0, 1) });
+    insertTrade(db, accountId, assetId, { type: "sell", qty: 10, unitPriceEur: 120, feesEur: 0, tradedAt: Date.UTC(2025, 1, 1) });
+    expect(() => {
+      db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+    }).toThrow(/oversells/);
   });
 
   it("ignores dividend transactions", () => {

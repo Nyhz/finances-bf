@@ -1,6 +1,7 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import type { DB } from "../../db/client";
+import { roundEur } from "../../lib/money";
 import {
   assetTransactions,
   taxLotConsumptions,
@@ -25,9 +26,10 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
     .from(assetTransactions)
     .where(eq(assetTransactions.assetId, assetId))
     .all();
-  for (const { id } of txnRows) {
-    tx.delete(taxWashSaleAdjustments).where(eq(taxWashSaleAdjustments.saleTransactionId, id)).run();
-    tx.delete(taxLotConsumptions).where(eq(taxLotConsumptions.saleTransactionId, id)).run();
+  const txnIds = txnRows.map((r) => r.id);
+  if (txnIds.length > 0) {
+    tx.delete(taxWashSaleAdjustments).where(inArray(taxWashSaleAdjustments.saleTransactionId, txnIds)).run();
+    tx.delete(taxLotConsumptions).where(inArray(taxLotConsumptions.saleTransactionId, txnIds)).run();
   }
   tx.delete(taxLots).where(eq(taxLots.assetId, assetId)).run();
 
@@ -44,7 +46,7 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
   for (const row of rows) {
     if (row.transactionType === "buy") {
       if (row.quantity <= 0) continue;
-      const unitCostEur = (row.tradeGrossAmountEur + row.feesAmountEur) / row.quantity;
+      const unitCostEur = roundEur((row.tradeGrossAmountEur + row.feesAmountEur) / row.quantity);
       const lotId = ulid();
       tx.insert(taxLots).values({
         id: lotId,
@@ -74,13 +76,13 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
     let remaining = row.quantity;
     const consumptions: { lotId: string; qty: number; cost: number }[] = [];
 
-    while (remaining > 1e-12 && open.length > 0) {
+    while (remaining > 1e-9 && open.length > 0) {
       const lot = open[0];
       const take = Math.min(lot.remainingQty, remaining);
       const unitCostWithDeferred =
         lot.unitCostEur +
         (lot.remainingQty > 0 ? lot.deferredLossAddedEur / lot.remainingQty : 0);
-      const cost = take * unitCostWithDeferred;
+      const cost = roundEur(take * unitCostWithDeferred);
       consumptions.push({ lotId: lot.id, qty: take, cost });
       // Consume a proportional share of the deferred credit too.
       const consumedDeferredShare =
@@ -88,7 +90,13 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
       lot.remainingQty -= take;
       lot.deferredLossAddedEur = Math.max(0, lot.deferredLossAddedEur - consumedDeferredShare);
       remaining -= take;
-      if (lot.remainingQty <= 1e-12) open.shift();
+      if (lot.remainingQty <= 1e-9) open.shift();
+    }
+
+    if (remaining > 1e-9) {
+      throw new Error(
+        `tax-lots: sell ${row.id} oversells asset ${assetId} by ${remaining} units — missing buy trades?`,
+      );
     }
 
     for (const c of consumptions) {
@@ -107,7 +115,7 @@ export function recomputeLotsForAsset(tx: DB, assetId: string): void {
           deferredLossAddedEur: lot.deferredLossAddedEur,
         }).where(eq(taxLots.id, lot.id)).run();
       } else {
-        tx.update(taxLots).set({ remainingQty: 0 }).where(eq(taxLots.id, c.lotId)).run();
+        tx.update(taxLots).set({ remainingQty: 0, deferredLossAddedEur: 0 }).where(eq(taxLots.id, c.lotId)).run();
       }
     }
   }

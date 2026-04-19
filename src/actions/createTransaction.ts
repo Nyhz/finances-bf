@@ -16,6 +16,7 @@ import {
 import { ACTOR, type ActionResult } from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
 import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
+import { recomputeLotsForAsset } from "../server/tax/lots";
 import { fxRates } from "../db/schema";
 import { roundEur as round } from "../lib/money";
 
@@ -127,29 +128,34 @@ export async function createTransaction(
         })
         .run();
 
-      tx
-        .insert(accountCashMovements)
-        .values({
-          id: ulid(),
-          accountId: data.accountId,
-          movementType: "trade",
-          occurredAt: tradedAt,
-          nativeAmount: round(sign * tradeGrossAmount - data.fees),
-          currency,
-          fxRateToEur: rate,
-          cashImpactEur: round(cashImpactEur),
-          externalReference: id,
-          rowFingerprint: `trade:${id}`,
-          source: "manual",
-          description: `${data.side} ${data.quantity} ${asset.symbol ?? asset.name}`,
-          affectsCashBalance: true,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-
       recomputeAssetPosition(tx, data.accountId, data.assetId);
-      recomputeAccountCashBalance(tx, data.accountId);
+      recomputeLotsForAsset(tx, data.assetId);
+
+      const tracksCash =
+        account.accountType === "bank" || account.accountType === "savings";
+      if (tracksCash) {
+        tx
+          .insert(accountCashMovements)
+          .values({
+            id: ulid(),
+            accountId: data.accountId,
+            movementType: "trade",
+            occurredAt: tradedAt,
+            nativeAmount: round(sign * tradeGrossAmount - data.fees),
+            currency,
+            fxRateToEur: rate,
+            cashImpactEur: round(cashImpactEur),
+            externalReference: id,
+            rowFingerprint: `trade:${id}`,
+            source: "manual",
+            description: `${data.side} ${data.quantity} ${asset.symbol ?? asset.name}`,
+            affectsCashBalance: true,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        recomputeAccountCashBalance(tx, data.accountId);
+      }
 
       const row = tx
         .select()

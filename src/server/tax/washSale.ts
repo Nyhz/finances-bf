@@ -1,7 +1,7 @@
 import { and, eq, gt, gte, lte } from "drizzle-orm";
 import { ulid } from "ulid";
 import { roundEur } from "../../lib/money";
-import type { DB } from "../../db/client";
+import type { db, DB } from "../../db/client";
 import {
   assetTransactions,
   assets,
@@ -10,10 +10,14 @@ import {
   type AssetTransaction,
 } from "../../db/schema";
 
+// Accepts a top-level DB handle or a Drizzle transaction handle.
+type Tx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+type DbOrTx = DB | Tx;
+
 const DAY = 86_400_000;
 
 export function checkSaleAtLoss(
-  tx: DB,
+  tx: DbOrTx,
   saleRow: AssetTransaction,
   proceedsEur: number,
   consumedCostEur: number,

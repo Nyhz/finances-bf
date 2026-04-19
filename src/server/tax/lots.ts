@@ -1,6 +1,6 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import type { DB } from "../../db/client";
+import type { db, DB } from "../../db/client";
 import { roundEur } from "../../lib/money";
 import {
   assetTransactions,
@@ -9,6 +9,12 @@ import {
   taxWashSaleAdjustments,
 } from "../../db/schema";
 import { checkSaleAtLoss } from "./washSale";
+
+// Accepts either a top-level DB handle or a Drizzle transaction handle.
+// Using the parameter type of the transaction callback avoids importing the
+// heavy BetterSQLite3Database type and makes this callable from inside tx.
+type Tx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+type DbOrTx = DB | Tx;
 
 type MutableLot = {
   id: string;
@@ -20,7 +26,7 @@ type MutableLot = {
   accountId: string;
 };
 
-export function recomputeLotsForAsset(tx: DB, assetId: string): void {
+export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
   // 1. Wipe previous derivations for this asset.
   const txnRows = tx
     .select({ id: assetTransactions.id })

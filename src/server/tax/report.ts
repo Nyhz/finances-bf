@@ -1,8 +1,10 @@
-import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import {
+  accounts,
   assetTransactions,
   assets,
+  assetValuations,
   taxLotConsumptions,
   taxLots,
   taxWashSaleAdjustments,
@@ -48,10 +50,24 @@ export type DividendReportRow = {
   netEur: number;
 };
 
+export type YearEndBalance = {
+  accountId: string;
+  accountName: string | null;
+  accountCountry: string | null;
+  accountType: string;
+  assetId: string;
+  assetName: string | null;
+  isin: string | null;
+  assetClassTax: string | null;
+  quantity: number;
+  valueEur: number;
+};
+
 export type TaxReport = {
   year: number;
   sales: SaleReportRow[];
   dividends: DividendReportRow[];
+  yearEndBalances: YearEndBalance[];
   totals: {
     realizedGainsEur: number;
     realizedLossesComputableEur: number;
@@ -194,10 +210,48 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     withholdingDestinoTotalEur += d.withholdingDestinoEur;
   }
 
+  const yearEndIso = new Date(end - 86_400_000).toISOString().slice(0, 10);
+  const allLotRows = db.select().from(taxLots).all();
+  const byKey = new Map<string, { accountId: string; assetId: string; qty: number }>();
+  for (const lot of allLotRows) {
+    if (lot.remainingQty <= 1e-9) continue;
+    if (lot.acquiredAt >= end) continue; // lot acquired after year-end
+    const key = `${lot.accountId}::${lot.assetId}`;
+    const cur = byKey.get(key) ?? { accountId: lot.accountId, assetId: lot.assetId, qty: 0 };
+    cur.qty += lot.remainingQty;
+    byKey.set(key, cur);
+  }
+  const yearEndBalances: YearEndBalance[] = [];
+  for (const entry of byKey.values()) {
+    const account = db.select().from(accounts).where(eq(accounts.id, entry.accountId)).get();
+    const asset = db.select().from(assets).where(eq(assets.id, entry.assetId)).get();
+    const valuation = db
+      .select()
+      .from(assetValuations)
+      .where(and(eq(assetValuations.assetId, entry.assetId), lte(assetValuations.valuationDate, yearEndIso)))
+      .orderBy(desc(assetValuations.valuationDate))
+      .limit(1)
+      .get();
+    const valueEur = valuation ? entry.qty * valuation.unitPriceEur : 0;
+    yearEndBalances.push({
+      accountId: entry.accountId,
+      accountName: account?.name ?? null,
+      accountCountry: account?.countryCode ?? null,
+      accountType: account?.accountType ?? "unknown",
+      assetId: entry.assetId,
+      assetName: asset?.name ?? null,
+      isin: asset?.isin ?? null,
+      assetClassTax: asset?.assetClassTax ?? null,
+      quantity: entry.qty,
+      valueEur,
+    });
+  }
+
   return {
     year,
     sales,
     dividends,
+    yearEndBalances,
     totals: {
       realizedGainsEur,
       realizedLossesComputableEur,

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const confirmImportSchema = z.object({
-  source: z.enum(["degiro", "binance", "cobas"]),
+  source: z.enum(["degiro", "binance", "cobas", "degiro-statement"]),
   accountId: z.string().min(1),
   csvText: z.string().min(1),
   overrides: z
@@ -21,6 +21,7 @@ export type ConfirmImportResult = {
   inserted: number;
   insertedTrades: number;
   insertedCashMovements: number;
+  insertedDividends: number;
   skippedDuplicates: number;
   skippedErrors: number;
   createdAssets: number;

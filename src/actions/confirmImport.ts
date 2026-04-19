@@ -23,7 +23,9 @@ import { recomputeLotsForAsset } from "../server/tax/lots";
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
+import { parseDegiroStatementCsv } from "../lib/imports/degiro-statement";
 import { assetHintKey } from "../lib/imports/_shared";
+import { roundEur } from "../lib/money";
 import type {
   AssetHint,
   ImportSource,
@@ -36,13 +38,11 @@ import { confirmImportSchema, type ConfirmImportResult } from "./confirmImport.s
 
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
+  if (source === "degiro-statement") return parseDegiroStatementCsv(csvText);
   if (source === "binance") return parseBinanceCsv(csvText);
   return parseCobasCsv(csvText);
 }
 
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 function findAsset(tx: Tx, hint: AssetHint | null | undefined): Asset | null {
   if (!hint) return null;
@@ -156,10 +156,10 @@ function insertTrade(
       : resolveFx(tx, row.currency, row.tradeDate);
   const sign = row.side === "buy" ? -1 : 1;
   const tradeGrossAmount = row.quantity * row.priceNative;
-  const tradeGrossAmountEur = round(tradeGrossAmount * rate);
+  const tradeGrossAmountEur = roundEur(tradeGrossAmount * rate);
   const fees = row.fees ?? 0;
-  const feesAmountEur = row.feesAlreadyEur ? round(fees) : round(fees * rate);
-  const cashImpactEur = sign * round(tradeGrossAmountEur) - feesAmountEur;
+  const feesAmountEur = row.feesAlreadyEur ? roundEur(fees) : roundEur(fees * rate);
+  const cashImpactEur = sign * roundEur(tradeGrossAmountEur) - feesAmountEur;
   const tradedAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
   const id = ulid();
   const now = Date.now();
@@ -175,12 +175,12 @@ function insertTrade(
       unitPrice: row.priceNative,
       tradeCurrency: row.currency,
       fxRateToEur: rate,
-      tradeGrossAmount: round(tradeGrossAmount),
+      tradeGrossAmount: roundEur(tradeGrossAmount),
       tradeGrossAmountEur,
-      cashImpactEur: round(cashImpactEur),
+      cashImpactEur: roundEur(cashImpactEur),
       feesAmount: fees,
       feesAmountEur,
-      netAmountEur: round(cashImpactEur),
+      netAmountEur: roundEur(cashImpactEur),
       rowFingerprint: row.rowFingerprint,
       source,
       createdAt: now,
@@ -196,10 +196,10 @@ function insertTrade(
         accountId,
         movementType: "trade",
         occurredAt: tradedAt,
-        nativeAmount: round(sign * tradeGrossAmount - fees),
+        nativeAmount: roundEur(sign * tradeGrossAmount - fees),
         currency: row.currency,
         fxRateToEur: rate,
-        cashImpactEur: round(cashImpactEur),
+        cashImpactEur: roundEur(cashImpactEur),
         externalReference: id,
         rowFingerprint: `trade:${id}`,
         source,
@@ -218,7 +218,7 @@ function insertCashMovement(
   source: ImportSource,
 ): void {
   const rate = resolveFx(tx, row.currency, row.tradeDate);
-  const cashImpactEur = Math.round(row.amountNative * rate * 100) / 100;
+  const cashImpactEur = roundEur(row.amountNative * rate);
   const occurredAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
   const now = Date.now();
   tx
@@ -235,6 +235,57 @@ function insertCashMovement(
       rowFingerprint: row.rowFingerprint,
       source,
       affectsCashBalance: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function insertDividend(
+  tx: Tx,
+  accountId: string,
+  assetId: string,
+  row: Extract<ParsedImportRow, { kind: "dividend" }>,
+  source: ImportSource,
+): void {
+  const fxRate =
+    row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
+      ? row.fxRateToEurOverride
+      : resolveFx(tx, row.currency, row.tradeDate);
+  const grossEur = roundEur(row.grossNative * fxRate);
+  const whtOrigenEur = roundEur(row.withholdingOrigenNative * fxRate);
+  const whtDestinoEur = row.withholdingDestinoEur ?? 0;
+  const netEur = roundEur(grossEur - whtOrigenEur - whtDestinoEur);
+  const tradedAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
+  const now = Date.now();
+  const id = ulid();
+  tx
+    .insert(assetTransactions)
+    .values({
+      id,
+      accountId,
+      assetId,
+      transactionType: "dividend",
+      tradedAt,
+      quantity: 0,
+      unitPrice: 0,
+      tradeCurrency: row.currency,
+      fxRateToEur: fxRate,
+      tradeGrossAmount: row.grossNative,
+      tradeGrossAmountEur: grossEur,
+      cashImpactEur: netEur,
+      feesAmount: 0,
+      feesAmountEur: 0,
+      netAmountEur: netEur,
+      dividendGross: row.grossNative,
+      dividendNet: roundEur(row.grossNative - row.withholdingOrigenNative),
+      withholdingTax: whtOrigenEur,
+      withholdingTaxDestination: whtDestinoEur > 0 ? whtDestinoEur : null,
+      sourceCountry: row.sourceCountry ?? null,
+      isListed: true,
+      rowFingerprint: row.rowFingerprint,
+      source,
+      rawPayload: JSON.stringify(row.rawRow),
       createdAt: now,
       updatedAt: now,
     })
@@ -278,6 +329,7 @@ export async function confirmImport(
       const fingerprints: string[] = [];
       let insertedTrades = 0;
       let insertedCashMovements = 0;
+      let insertedDividends = 0;
       let skippedDuplicates = 0;
       let createdAssets = 0;
 
@@ -320,8 +372,15 @@ export async function confirmImport(
           }
           fingerprints.push(row.rowFingerprint);
         } else {
-          // "dividend" rows — persisted in Task 16 (confirmImport dividend support).
-          // For now just record the fingerprint to prevent duplicate imports.
+          // row.kind === "dividend" — persist as asset_transaction with type "dividend"
+          let asset: Asset | null = findAsset(tx, row.assetHint);
+          if (!asset) {
+            asset = autoCreateAsset(tx, row.assetHint, row.currency, source);
+            createdAssets++;
+          }
+          insertDividend(tx, accountId, asset.id, row, source);
+          touchedAssets.add(asset.id);
+          insertedDividends++;
           fingerprints.push(row.rowFingerprint);
         }
       });
@@ -334,7 +393,7 @@ export async function confirmImport(
         recomputeAccountCashBalance(tx, accountId);
       }
 
-      const inserted = insertedTrades + insertedCashMovements;
+      const inserted = insertedTrades + insertedCashMovements + insertedDividends;
       const summary = `${source} import: ${inserted} inserted, ${skippedDuplicates} duplicates, ${createdAssets} new assets`;
       const importId = ulid();
       tx
@@ -354,6 +413,7 @@ export async function confirmImport(
             inserted,
             insertedTrades,
             insertedCashMovements,
+            insertedDividends,
             skippedDuplicates,
             skippedErrors: parseResult.errors.length,
             createdAssets,
@@ -368,6 +428,7 @@ export async function confirmImport(
         inserted,
         insertedTrades,
         insertedCashMovements,
+        insertedDividends,
         skippedDuplicates,
         skippedErrors: parseResult.errors.length,
         createdAssets,

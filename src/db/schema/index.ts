@@ -9,3 +9,7 @@ export * from "./asset_valuations";
 export * from "./fx_rates";
 export * from "./imports";
 export * from "./audit_events";
+export * from "./tax_lots";
+export * from "./tax_lot_consumptions";
+export * from "./tax_wash_sale_adjustments";
+export * from "./tax_year_snapshots";

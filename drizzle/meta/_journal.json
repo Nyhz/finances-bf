@@ -36,6 +36,13 @@
       "when": 1776626765376,
       "tag": "0004_tax_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1776627048929,
+      "tag": "0005_tax_tables",
+      "breakpoints": true
     }
   ]
 }

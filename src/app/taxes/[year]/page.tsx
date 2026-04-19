@@ -12,6 +12,8 @@ import { DriftBanner } from "@/src/components/features/taxes/DriftBanner";
 import { TaxKpiRow } from "@/src/components/features/taxes/TaxKpiRow";
 import { GainsTable } from "@/src/components/features/taxes/GainsTable";
 import { DividendsTable } from "@/src/components/features/taxes/DividendsTable";
+import { YearEndCard } from "@/src/components/features/taxes/YearEndCard";
+import type { InformationalModelsStatus } from "@/src/server/tax/m720";
 
 type Params = Promise<{ year: string }>;
 
@@ -41,9 +43,7 @@ export default async function TaxYearPage({ params }: { params: Params }) {
       <TaxKpiRow report={report} interestEur={divInt.interestEur} />
       <GainsTable sales={report.sales} />
       <DividendsTable dividends={report.dividends} />
-      <pre className="text-xs opacity-60 overflow-auto rounded-md border border-border p-4">
-        {JSON.stringify({ year, totals: report.totals, models, drift, yearsAvailable: years }, null, 2)}
-      </pre>
+      <YearEndCard models={models as InformationalModelsStatus} />
     </div>
   );
 }

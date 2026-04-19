@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { makeRowFingerprint, normaliseDate, parseCsv, parseDecimal } from "./_shared";
+import { normaliseDate, parseCsv, parseDecimal } from "./_shared";
 import { countryFromIsin } from "../../server/tax/countries";
 import type {
   ImportParseError,
@@ -127,11 +127,6 @@ export function parseDegiroStatementCsv(csv: string): ImportParseResult {
 
   const out: ParsedImportRow[] = [];
   const errors: ImportParseError[] = [];
-
-  // Verify column layout from header
-  const header = allRows[0];
-  // We rely on positional indexing; do a quick sanity check.
-  // COL_ORDER_ID should be 11 — just log if it doesn't exist.
 
   const rawRows: RawParsedRow[] = [];
 

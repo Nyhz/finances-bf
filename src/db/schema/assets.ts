@@ -14,6 +14,7 @@ export const assets = sqliteTable(
     exchange: text("exchange"),
     providerSymbol: text("provider_symbol"),
     currency: text("currency").notNull().default("EUR"),
+    assetClassTax: text("asset_class_tax"),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     notes: text("notes"),
     createdAt: createdAtCol(),

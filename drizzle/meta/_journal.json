@@ -29,6 +29,13 @@
       "when": 1808784060000,
       "tag": "0003_prune_account_types",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1776626765376,
+      "tag": "0004_tax_columns",
+      "breakpoints": true
     }
   ]
 }

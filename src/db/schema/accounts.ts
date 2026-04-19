@@ -6,6 +6,7 @@ export const accounts = sqliteTable("accounts", {
   name: text("name").notNull(),
   currency: text("currency").notNull().default("EUR"),
   accountType: text("account_type").notNull(),
+  countryCode: text("country_code"),
   openingBalanceEur: real("opening_balance_eur").notNull().default(0),
   currentCashBalanceEur: real("current_cash_balance_eur").notNull().default(0),
   createdAt: createdAtCol(),

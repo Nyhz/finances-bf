@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "sync:prices": "curl -fsS -H \"x-cron-secret: $CRON_SECRET\" http://localhost:3200/api/cron/sync-prices"
+    "sync:prices": "curl -fsS -H \"x-cron-secret: $CRON_SECRET\" http://localhost:3200/api/cron/sync-prices",
+    "backfill:asset-class": "tsx scripts/backfill-asset-class.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

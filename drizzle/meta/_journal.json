@@ -43,6 +43,13 @@
       "when": 1776627048929,
       "tag": "0005_tax_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1776627381424,
+      "tag": "0006_tax_index_polish",
+      "breakpoints": true
     }
   ]
 }

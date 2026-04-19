@@ -19,6 +19,7 @@ export const taxLotConsumptions = sqliteTable(
   },
   (t) => ({
     saleIdx: index("tax_lot_consumptions_sale_idx").on(t.saleTransactionId),
+    lotIdx: index("tax_lot_consumptions_lot_idx").on(t.lotId),
     uniquePair: uniqueIndex("tax_lot_consumptions_unique_pair").on(
       t.saleTransactionId,
       t.lotId,

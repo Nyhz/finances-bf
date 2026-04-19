@@ -19,6 +19,7 @@ export const taxWashSaleAdjustments = sqliteTable(
   },
   (t) => ({
     saleIdx: index("tax_wash_sale_adjustments_sale_idx").on(t.saleTransactionId),
+    lotIdx: index("tax_wash_sale_adjustments_lot_idx").on(t.absorbingLotId),
   }),
 );
 

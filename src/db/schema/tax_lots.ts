@@ -2,7 +2,7 @@ import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-or
 import { accounts } from "./accounts";
 import { assets } from "./assets";
 import { assetTransactions } from "./asset_transactions";
-import { createdAtCol, idCol } from "./_shared";
+import { createdAtCol, idCol, updatedAtCol } from "./_shared";
 
 export const taxLots = sqliteTable(
   "tax_lots",
@@ -23,6 +23,7 @@ export const taxLots = sqliteTable(
     unitCostEur: real("unit_cost_eur").notNull(),
     deferredLossAddedEur: real("deferred_loss_added_eur").notNull().default(0),
     createdAt: createdAtCol(),
+    updatedAt: updatedAtCol(),
   },
   (t) => ({
     assetAcquiredIdx: index("tax_lots_asset_acquired_idx").on(t.assetId, t.acquiredAt),

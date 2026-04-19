@@ -10,6 +10,7 @@ import { db } from "@/src/db/client";
 import { TaxesHeader } from "@/src/components/features/taxes/TaxesHeader";
 import { DriftBanner } from "@/src/components/features/taxes/DriftBanner";
 import { TaxKpiRow } from "@/src/components/features/taxes/TaxKpiRow";
+import { GainsTable } from "@/src/components/features/taxes/GainsTable";
 
 type Params = Promise<{ year: string }>;
 
@@ -37,6 +38,7 @@ export default async function TaxYearPage({ params }: { params: Params }) {
       <TaxesHeader year={year} availableYears={years} sealed={snapshot != null} />
       {drift ? <DriftBanner drift={drift} /> : null}
       <TaxKpiRow report={report} interestEur={divInt.interestEur} />
+      <GainsTable sales={report.sales} />
       <pre className="text-xs opacity-60 overflow-auto rounded-md border border-border p-4">
         {JSON.stringify({ year, totals: report.totals, models, drift, yearsAvailable: years }, null, 2)}
       </pre>

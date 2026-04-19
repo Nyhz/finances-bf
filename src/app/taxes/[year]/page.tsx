@@ -7,6 +7,7 @@ import { computeInformationalModelsStatus } from "@/src/server/tax/m720";
 import { aggregateBlocksFromBalances } from "@/src/server/tax/m720Aggregate";
 import { getTaxYears } from "@/src/server/taxes";
 import { db } from "@/src/db/client";
+import { TaxesHeader } from "@/src/components/features/taxes/TaxesHeader";
 
 type Params = Promise<{ year: string }>;
 
@@ -30,12 +31,7 @@ export default async function TaxYearPage({ params }: { params: Params }) {
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Taxes — {year}</h1>
-        <p className="text-sm text-muted-foreground">
-          {snapshot ? `Sealed on ${new Date(snapshot.sealedAt).toISOString().slice(0, 10)}` : "Unsealed — live data"}
-        </p>
-      </header>
+      <TaxesHeader year={year} availableYears={years} sealed={snapshot != null} />
       <pre className="text-xs opacity-60 overflow-auto rounded-md border border-border p-4">
         {JSON.stringify({ year, totals: report.totals, models, drift, yearsAvailable: years }, null, 2)}
       </pre>

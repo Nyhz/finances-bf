@@ -35,20 +35,18 @@ describe("parseBinanceCsv", () => {
     expect(ethBtc).toBeDefined();
   });
 
-  it("emits a zero-price sell trade of the fee coin when fee coin differs from quote", () => {
+  it("drops Binance fees entirely — no fee-disposal row, no fees on trades", () => {
     const { rows } = parseBinanceCsv(fixture);
-    const feeDisposals = rows.filter(
-      (r) =>
-        r.kind === "trade" &&
-        r.side === "sell" &&
-        r.priceNative === 0 &&
-        r.assetHint.symbol === "SOL",
+    const trades = rows.filter((r) => r.kind === "trade");
+    // No synthetic zero-price fee-disposal rows (historically emitted for
+    // BNB-paid fees). Binance fees are dust and intentionally ignored.
+    const zeroPriceSells = trades.filter(
+      (r) => r.kind === "trade" && r.side === "sell" && r.priceNative === 0,
     );
-    expect(feeDisposals).toHaveLength(1);
-    const row = feeDisposals[0];
-    if (row.kind === "trade") {
-      expect(row.currency).toBe("EUR");
-      expect(row.quantity).toBeGreaterThan(0);
+    expect(zeroPriceSells).toHaveLength(0);
+    // Every trade has fees stripped to null.
+    for (const t of trades) {
+      if (t.kind === "trade") expect(t.fees).toBeNull();
     }
   });
 

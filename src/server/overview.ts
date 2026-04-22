@@ -181,7 +181,19 @@ export async function getOverviewKpis(
     realizedPnlYtdEur = null;
   }
 
-  const unrealizedPnlPct = pctBase > 0 ? unrealizedPnlEur / pctBase : null;
+  // Align the KPI percent with the Portfolio-evolution chart: both use the
+  // time-weighted return so deposits/withdrawals don't move the number. The
+  // EUR figure stays as true unrealized P&L (market value vs. cost / range
+  // baseline), so the card reads "€X gained, portfolio returned Y%".
+  let unrealizedPnlPct: number | null =
+    pctBase > 0 ? unrealizedPnlEur / pctBase : null;
+  if (positions.length > 0) {
+    const series = await getNetWorthSeries(filters, db);
+    const last = series.at(-1);
+    if (last && Number.isFinite(last.performanceIndex)) {
+      unrealizedPnlPct = last.performanceIndex / 100 - 1;
+    }
+  }
   return {
     totalNetWorthEur: cashEur + marketValueEur,
     cashEur,
@@ -198,6 +210,10 @@ export type NetWorthPoint = {
   /** Cumulative EUR contributed into scope up to and including this date.
    *  Used to compute a P/L % that excludes fresh deposits. */
   investedEur: number;
+  /** Time-weighted return index anchored at 100 on the first valued day.
+   *  Chain-links daily market returns and strips out contributions, so a
+   *  fresh deposit + buy does not move the line. */
+  performanceIndex: number;
 };
 
 export async function getNetWorthSeries(
@@ -346,12 +362,29 @@ export async function getNetWorthSeries(
     }
   }
   const out: NetWorthPoint[] = [];
+  let performanceIndex = 100;
+  let prevValue: number | null = null;
   for (const date of sortedDates) {
-    invested += deltaByDate.get(date) ?? 0;
+    const contribution = deltaByDate.get(date) ?? 0;
+    invested += contribution;
+    const value = byDate.get(date) ?? 0;
+    // TWR: anchor the index at the first day with a positive value. For each
+    // later day, period return = (V_t − C_t) / V_{t−1}, which subtracts the
+    // day's contribution from the numerator so a deposit+buy doesn't register
+    // as a gain or loss. prev_value tracks the previous day's ex-post value.
+    if (prevValue !== null && prevValue > 0) {
+      const r = (value - contribution) / prevValue;
+      if (Number.isFinite(r) && r > 0) performanceIndex *= r;
+    }
+    if (prevValue === null && value > 0) {
+      performanceIndex = 100;
+    }
+    if (value > 0) prevValue = value;
     out.push({
       date,
-      valueEur: byDate.get(date) ?? 0,
+      valueEur: value,
       investedEur: invested,
+      performanceIndex,
     });
   }
   return out;

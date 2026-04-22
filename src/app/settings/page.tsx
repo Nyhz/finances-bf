@@ -1,4 +1,5 @@
 import { Card } from "@/src/components/ui/Card";
+import { WipeAppCard } from "@/src/components/features/settings/WipeAppCard";
 
 function maskPath(p: string | undefined): string {
   if (!p) return "(unset)";
@@ -36,6 +37,8 @@ export default function SettingsPage() {
           ))}
         </dl>
       </Card>
+
+      <WipeAppCard />
     </div>
   );
 }

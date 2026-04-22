@@ -91,8 +91,14 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
 
     const accountHint = lookup("Account") || "binance-spot";
     const assetHint = { symbol: split.base };
-    const feeInQuote = !feeCoin || feeCoin === split.quote;
-    const tradeFees = feeInQuote && fee.value != null ? fee.value : null;
+    // Binance fees are dust (cents of BNB per trade) and create heavy
+    // bookkeeping overhead — synthetic BNB fee-disposals, noisy tax lots,
+    // rounding drift. We intentionally drop them: fees are ignored on the
+    // trade itself and no fee-disposal is emitted. The originals remain in
+    // rawRow for audit. feeCoin / fee are still parsed above to preserve
+    // parser surface but are not propagated.
+    void fee;
+    void feeCoin;
 
     const tradeFingerprint = makeRowFingerprint({
       source: SOURCE,
@@ -119,42 +125,8 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       quantity: executed.value,
       priceNative: price,
       currency: split.quote,
-      fees: tradeFees,
+      fees: null,
     });
-
-    // Fee paid in a different coin (typically BNB on Binance) → emit a
-    // zero-price sell of that coin so the asset position decrements. Recording
-    // it as a cash movement would require an FX rate for a crypto, which the
-    // fiat fx table cannot provide. The original fee is preserved in rawRow
-    // for audit.
-    if (!feeInQuote && fee.value != null && fee.value !== 0) {
-      const feeAssetHint = { symbol: feeCoin };
-      const feeQty = Math.abs(fee.value);
-      const feeFingerprint = makeRowFingerprint({
-        source: SOURCE,
-        accountHint,
-        tradeDate,
-        assetHint: assetHintKey(feeAssetHint),
-        side: "fee-disposal",
-        quantity: feeQty,
-        priceNative: 0,
-        rowIndex: idx,
-      });
-      out.push({
-        kind: "trade",
-        source: SOURCE,
-        tradeDate,
-        accountHint,
-        rowFingerprint: feeFingerprint,
-        rawRow: rec,
-        assetHint: feeAssetHint,
-        side: "sell",
-        quantity: feeQty,
-        priceNative: 0,
-        currency: "EUR",
-        fees: null,
-      });
-    }
 
     // Quote-currency amount sanity could be checked; but we don't fail when
     // executed*price ≠ amount because Binance occasionally rounds.

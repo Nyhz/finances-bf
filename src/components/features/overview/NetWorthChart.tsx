@@ -27,7 +27,6 @@ type Point = {
 };
 
 const BASELINE = 100;
-const RETURN_PCT_MIN_BASELINE_EUR = 1;
 const CHART_EDGE_PADDING_RATIO = 0.02;
 const MIN_CHART_EDGE_PADDING = 0.05;
 
@@ -64,21 +63,14 @@ function formatTooltipMoney(value: number): string {
 export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
   const points: Point[] = useMemo(
     () =>
-      data.map((p) => {
-        // marketIndex = value / invested × 100, so 100 = break-even against
-        // everything you've contributed up to that date (matches KPI math).
-        const invested = p.investedEur;
-        const marketIndex =
-          Math.abs(invested) >= RETURN_PCT_MIN_BASELINE_EUR
-            ? (p.valueEur / invested) * BASELINE
-            : BASELINE;
-        return {
-          label: formatLabel(p.date),
-          dateIso: p.date,
-          totalValue: p.valueEur,
-          marketIndex,
-        };
-      }),
+      data.map((p) => ({
+        label: formatLabel(p.date),
+        dateIso: p.date,
+        totalValue: p.valueEur,
+        // Time-weighted return index from the server: 100 = flat, deposits
+        // and withdrawals do not move the line — only market performance does.
+        marketIndex: p.performanceIndex,
+      })),
     [data],
   );
 

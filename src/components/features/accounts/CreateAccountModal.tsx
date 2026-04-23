@@ -4,7 +4,7 @@ import * as React from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { createAccount } from "@/src/actions/accounts";
-import { ACCOUNT_TYPES } from "@/src/actions/_shared";
+import { ACCOUNT_TYPES } from "@/src/actions/_constants";
 
 type FormState = {
   name: string;

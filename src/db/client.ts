@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema";
 
 const dbUrl = process.env.DATABASE_URL ?? process.env.DB_PATH ?? "data/finances.db";
-const dbPath = resolve(process.cwd(), dbUrl);
+const dbPath = resolve(/* turbopackIgnore: true */ process.cwd(), dbUrl);
 const dbDir = dirname(dbPath);
 
 if (!existsSync(dbDir)) {

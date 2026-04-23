@@ -10,7 +10,7 @@ import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { deleteAccount } from "@/src/actions/deleteAccount";
 import { formatEur, formatMoney } from "@/src/lib/format";
 import type { AccountWithTotals } from "@/src/server/accounts";
-import { isCashBearingAccount } from "@/src/actions/_shared";
+import { isCashBearingAccount } from "@/src/actions/_constants";
 
 export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
   const [target, setTarget] = React.useState<AccountWithTotals | null>(null);

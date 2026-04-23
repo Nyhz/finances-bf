@@ -2,7 +2,7 @@ import { Badge } from "@/src/components/ui/Badge";
 import { KPICard } from "@/src/components/ui/KPICard";
 import { formatEur } from "@/src/lib/format";
 import type { Account } from "@/src/db/schema";
-import { isCashBearingAccount } from "@/src/actions/_shared";
+import { isCashBearingAccount } from "@/src/actions/_constants";
 import { ReimportAccountButton } from "@/src/components/features/accounts/ReimportAccountButton";
 
 export type AccountHeaderProps = {

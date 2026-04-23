@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, lte } from "drizzle-orm";
+// note: confirmImport also touches /imports specifically (the list of past
+// imports), so it keeps the raw `revalidatePath` import + uses the shared
+// helper for the common pages.
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
@@ -14,17 +17,18 @@ import {
   fxRates,
   type Asset,
 } from "../db/schema";
-import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
-import { inferAssetClassTax } from "../server/tax/classification";
 import {
-  recomputeAccountCashBalance,
-  recomputeAssetPosition,
-} from "../server/recompute";
-import { recomputeLotsForAsset } from "../server/tax/lots";
+  ACTOR,
+  type ActionResult,
+  isCashBearingAccount,
+  revalidateTradeMutation,
+} from "./_shared";
+import { inferAssetClassTax } from "../server/tax/classification";
+import { rebuildAfterTradeMutation } from "../server/mutations";
+import { resolveFxRange, writeFxBars, type FxRangeResult } from "../lib/fx-backfill";
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
-import { parseDegiroStatementCsv } from "../lib/imports/degiro-statement";
 import { assetHintKey } from "../lib/imports/_shared";
 import { roundEur } from "../lib/money";
 import type {
@@ -37,9 +41,26 @@ type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 
 import { confirmImportSchema, type ConfirmImportResult } from "./confirmImport.schema";
 
+/**
+ * Collect every non-EUR currency present in the batch together with the
+ * oldest trade date per currency. Used to build the FX fetch plan before
+ * we touch the DB.
+ */
+function gatherFxPlan(rows: ParsedImportRow[]): Map<string, string> {
+  const perCurrencyFromIso = new Map<string, string>();
+  for (const row of rows) {
+    if (row.kind !== "trade") continue;
+    const ccy = row.currency.toUpperCase();
+    if (ccy === "EUR") continue;
+    const iso = row.tradeDate;
+    const current = perCurrencyFromIso.get(ccy);
+    if (!current || iso < current) perCurrencyFromIso.set(ccy, iso);
+  }
+  return perCurrencyFromIso;
+}
+
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
-  if (source === "degiro-statement") return parseDegiroStatementCsv(csvText);
   if (source === "binance") return parseBinanceCsv(csvText);
   return parseCobasCsv(csvText);
 }
@@ -320,8 +341,36 @@ export async function confirmImport(
 
   const parseResult = runParser(source, csvText);
 
+  // --- Phase 1: fetch ALL FX data required for this batch (no DB writes) ---
+  // Atomicity requirement: if any FX range fails, abort the entire import
+  // before a single row touches the DB. Yahoo is tried first; if it has no
+  // bars (stablecoin or crypto quote currency) CoinGecko is consulted.
+  const fxPlan = gatherFxPlan(parseResult.rows);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const fxFetched: FxRangeResult[] = [];
+  try {
+    for (const [ccy, fromIso] of fxPlan) {
+      fxFetched.push(await resolveFxRange(ccy, fromIso, todayIso));
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      error: {
+        code: "db",
+        message: `FX fetch failed — import aborted, no data written: ${msg}`,
+      },
+    };
+  }
+
   try {
     const result = db.transaction((tx): ConfirmImportResult => {
+      // --- Phase 2 (tx): persist FX first so the valuation rebuild that
+      // runs after trade inserts sees the new rates. On any error below,
+      // SQLite rolls back these FX rows with the rest of the import. ---
+      for (const range of fxFetched) {
+        writeFxBars(tx, range.currency, range.bars);
+      }
       const account = tx
         .select()
         .from(accounts)
@@ -391,13 +440,10 @@ export async function confirmImport(
         }
       });
 
-      for (const assetId of touchedAssets) {
-        recomputeAssetPosition(tx, accountId, assetId);
-        recomputeLotsForAsset(tx, assetId);
-      }
-      if (tracksCash) {
-        recomputeAccountCashBalance(tx, accountId);
-      }
+      // Rebuild positions/lots/valuations/cash for every touched asset in
+      // one call. Uses CSV trade-time FX + locally-stored Yahoo / CoinGecko
+      // price bars — no network calls here.
+      rebuildAfterTradeMutation(tx, accountId, touchedAssets);
 
       const inserted = insertedTrades + insertedCashMovements + insertedDividends;
       const summary = `${source} import: ${inserted} inserted, ${skippedDuplicates} duplicates, ${createdAssets} new assets`;
@@ -442,15 +488,8 @@ export async function confirmImport(
       };
     });
 
+    revalidateTradeMutation(accountId);
     revalidatePath("/imports");
-    revalidatePath("/transactions");
-    revalidatePath("/accounts");
-    revalidatePath(`/accounts/${accountId}`);
-    revalidatePath("/overview");
-    revalidatePath("/");
-    revalidatePath("/assets");
-    revalidatePath("/audit");
-    revalidatePath("/taxes");
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

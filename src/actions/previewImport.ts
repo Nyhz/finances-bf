@@ -14,7 +14,6 @@ import type { ActionResult } from "./_shared";
 import { parseBinanceCsv } from "../lib/imports/binance";
 import { parseCobasCsv } from "../lib/imports/cobas";
 import { parseDegiroCsv } from "../lib/imports/degiro";
-import { parseDegiroStatementCsv } from "../lib/imports/degiro-statement";
 import { assetHintKey } from "../lib/imports/_shared";
 import type {
   AssetHint,
@@ -39,7 +38,6 @@ export type PreviewImportDeps = {
 
 function runParser(source: ImportSource, csvText: string) {
   if (source === "degiro") return parseDegiroCsv(csvText);
-  if (source === "degiro-statement") return parseDegiroStatementCsv(csvText);
   if (source === "binance") return parseBinanceCsv(csvText);
   return parseCobasCsv(csvText);
 }

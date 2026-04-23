@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
@@ -8,7 +7,7 @@ import { auditEvents, taxYearSnapshots } from "../db/schema";
 import { buildTaxReport } from "../server/tax/report";
 import { computeInformationalModelsStatus } from "../server/tax/m720";
 import { aggregateBlocksFromBalances } from "../server/tax/m720Aggregate";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, revalidateTaxEvent } from "./_shared";
 import { sealYearSchema } from "./sealYear.schema";
 
 export async function sealYear(
@@ -49,8 +48,7 @@ export async function sealYear(
       }).run();
       return { year, snapshotId: id };
     });
-    revalidatePath("/taxes");
-    revalidatePath(`/taxes/${year}`);
+    revalidateTaxEvent(year);
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";

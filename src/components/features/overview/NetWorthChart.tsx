@@ -57,7 +57,10 @@ function formatTooltipDate(iso: string): string {
 }
 
 function formatTooltipMoney(value: number): string {
-  return `${Math.round(value).toLocaleString("es-ES")}€`;
+  return `${value.toLocaleString("es-ES", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}€`;
 }
 
 export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {

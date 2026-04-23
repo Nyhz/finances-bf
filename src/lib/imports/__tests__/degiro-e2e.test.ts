@@ -9,13 +9,13 @@ import { ulid } from "ulid";
 import * as schema from "../../../db/schema";
 import type { DB } from "../../../db/client";
 import { accounts, assets, assetTransactions } from "../../../db/schema";
-import { parseDegiroStatementCsv } from "../degiro-statement";
+import { parseDegiroCsv } from "../degiro";
 import { recomputeLotsForAsset } from "../../../server/tax/lots";
 import { buildTaxReport } from "../../../server/tax/report";
 import { inferAssetClassTax } from "../../../server/tax/classification";
 
 const FIXTURE = readFileSync(
-  join(__dirname, "../__fixtures__/degiro-statement.sample.csv"),
+  join(__dirname, "../__fixtures__/degiro.sample.csv"),
   "utf8",
 );
 
@@ -41,7 +41,7 @@ describe("DEGIRO statement → tax report end-to-end", () => {
       openingBalanceEur: 0, currentCashBalanceEur: 0,
     }).run();
 
-    const parsed = parseDegiroStatementCsv(FIXTURE);
+    const parsed = parseDegiroCsv(FIXTURE);
     expect(parsed.errors).toHaveLength(0);
 
     // Materialise assets from unique ISINs.
@@ -84,7 +84,7 @@ describe("DEGIRO statement → tax report end-to-end", () => {
           feesAmount: feesNative, feesAmountEur: feesEur,
           netAmountEur: cashImpact,
           isListed: true,
-          source: "degiro-statement",
+          source: "degiro",
           rowFingerprint: row.rowFingerprint,
         }).run();
       } else if (row.kind === "dividend") {
@@ -108,7 +108,7 @@ describe("DEGIRO statement → tax report end-to-end", () => {
           withholdingTaxDestination: whtDestinoEur,
           sourceCountry: row.sourceCountry ?? null,
           isListed: true,
-          source: "degiro-statement",
+          source: "degiro",
           rowFingerprint: row.rowFingerprint,
         }).run();
       }

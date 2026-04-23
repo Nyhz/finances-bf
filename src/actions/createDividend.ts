@@ -1,15 +1,18 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
-import { recomputeLotsForAsset } from "../server/tax/lots";
-import { recomputeAssetPosition, recomputeAccountCashBalance } from "../server/recompute";
+import { rebuildAfterTradeMutation } from "../server/mutations";
 import { roundEur } from "../lib/money";
 import { createDividendSchema } from "./createDividend.schema";
-import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
+import {
+  ACTOR,
+  type ActionResult,
+  isCashBearingAccount,
+  revalidateTradeMutation,
+} from "./_shared";
 
 export async function createDividend(
   input: unknown,
@@ -51,9 +54,6 @@ export async function createDividend(
         notes: data.notes ?? null,
       }).run();
 
-      recomputeLotsForAsset(tx, data.assetId);
-      recomputeAssetPosition(tx, data.accountId, data.assetId);
-
       if (isCashBearingAccount(account.accountType)) {
         tx.insert(accountCashMovements).values({
           id: ulid(),
@@ -72,8 +72,8 @@ export async function createDividend(
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }).run();
-        recomputeAccountCashBalance(tx, data.accountId);
       }
+      rebuildAfterTradeMutation(tx, data.accountId, data.assetId);
 
       tx.insert(auditEvents).values({
         id: ulid(),
@@ -92,9 +92,7 @@ export async function createDividend(
       return { id };
     });
 
-    revalidatePath("/transactions");
-    revalidatePath("/overview");
-    revalidatePath("/taxes");
+    revalidateTradeMutation(data.accountId);
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";

@@ -29,13 +29,10 @@ export type ResolveFxOptions = {
   explicitRate?: number | null;
 };
 
-export function toIsoDate(date: Date | string): string {
-  if (typeof date === "string") return date.slice(0, 10);
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
+import { toIsoDate } from "./time";
+// Re-exported for the many callers already importing from `./fx`. New code
+// should import from `./time` directly.
+export { toIsoDate };
 
 export async function resolveFxRate(
   currency: string,

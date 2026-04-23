@@ -9,7 +9,9 @@ import {
   priceHistory,
   type Asset,
 } from "../db/schema";
-import { resolveFxRate, toIsoDate, type FxLookup } from "./fx";
+import { resolveFxRate, type FxLookup } from "./fx";
+import { round, roundEur } from "./money";
+import { toIsoDate } from "./time";
 import type { PricingProviderName, Quote } from "./pricing";
 
 export type PriceClient = {
@@ -53,13 +55,6 @@ function resolveSymbol(
   );
 }
 
-function roundMoney(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-function roundUnitPrice(n: number): number {
-  return Math.round(n * 1e6) / 1e6;
-}
 
 export async function syncPrices(
   db: DB,
@@ -255,14 +250,14 @@ export async function syncPrices(
         quoteCurrencyByAsset.get(asset.id) ??
         (provider === "coingecko" ? "EUR" : asset.currency);
       const fx = await resolveFxRate(quoteCurrency, today, fxLookup);
-      const unitPriceEur = roundUnitPrice(priceRow.price * fx.rate);
+      const unitPriceEur = round(priceRow.price * fx.rate, 6);
       const positionRow = await db
         .select()
         .from(assetPositions)
         .where(eq(assetPositions.assetId, asset.id))
         .get();
       const quantity = positionRow?.quantity ?? 0;
-      const marketValueEur = roundMoney(quantity * unitPriceEur);
+      const marketValueEur = roundEur(quantity * unitPriceEur);
 
       const existing = await db
         .select()

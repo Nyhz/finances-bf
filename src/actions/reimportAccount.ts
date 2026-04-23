@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
@@ -12,9 +11,8 @@ import {
   taxLots,
   taxWashSaleAdjustments,
 } from "../db/schema";
-import { recomputeLotsForAsset } from "../server/tax/lots";
-import { recomputeAccountCashBalance } from "../server/recompute";
-import { ACTOR, type ActionResult } from "./_shared";
+import { rebuildAfterTradeMutation } from "../server/mutations";
+import { ACTOR, type ActionResult, revalidateTradeMutation } from "./_shared";
 import { reimportAccountSchema } from "./reimportAccount.schema";
 
 export async function reimportAccount(
@@ -57,12 +55,9 @@ export async function reimportAccount(
       tx.delete(assetTransactions).where(eq(assetTransactions.accountId, accountId)).run();
       tx.delete(accountCashMovements).where(eq(accountCashMovements.accountId, accountId)).run();
 
-      // Recompute lots for every affected asset to clear stale state.
-      for (const assetId of assetIds) {
-        recomputeLotsForAsset(tx, assetId);
-      }
-      // Reset cash balance (no-op for non-savings accounts).
-      recomputeAccountCashBalance(tx, accountId);
+      // Single-shot refresh for every asset that had trades in this account.
+      // Clears stale positions/lots/valuations and resets the cash balance.
+      rebuildAfterTradeMutation(tx, accountId, assetIds);
 
       tx
         .insert(auditEvents)
@@ -84,11 +79,7 @@ export async function reimportAccount(
       return { deletedTransactions: txns.length };
     });
 
-    revalidatePath("/accounts");
-    revalidatePath(`/accounts/${accountId}`);
-    revalidatePath("/transactions");
-    revalidatePath("/overview");
-    revalidatePath("/taxes");
+    revalidateTradeMutation(accountId);
 
     return { ok: true, data: result };
   } catch (err) {

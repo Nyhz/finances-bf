@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import {
   accounts,
@@ -9,6 +9,7 @@ import {
 } from "../db/schema";
 import { listAccounts, getAccountsSummary } from "./accounts";
 import { isCashBearingAccount } from "../actions/_shared";
+import { toIsoDate } from "../lib/time";
 import { listPositions, type PositionRow } from "./positions";
 
 export type OverviewRange = "1M" | "3M" | "6M" | "YTD" | "1Y" | "ALL";
@@ -46,10 +47,6 @@ function rangeStart(range: OverviewRange, now: Date = new Date()): Date | null {
   else if (range === "6M") d.setUTCMonth(d.getUTCMonth() - 6);
   else if (range === "1Y") d.setUTCFullYear(d.getUTCFullYear() - 1);
   return d;
-}
-
-function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 async function resolveAccountIds(
@@ -223,21 +220,54 @@ export async function getNetWorthSeries(
   const { ids } = await resolveAccountIds(filters, db);
   if (ids.length === 0) return [];
 
-  const start = rangeStart(filters.range);
-  const end = new Date();
   const filteringAccounts =
     filters.accountIds != null && filters.accountIds.length > 0;
 
-  const startIso = start ? toIsoDate(start) : null;
-  const conds = [lte(assetValuations.valuationDate, toIsoDate(end))];
-  if (startIso) conds.push(gte(assetValuations.valuationDate, startIso));
-  let scopeAssetIdList: string[] | null = null;
+  // Always scope valuations to assets that currently have transactions.
+  // `asset_valuations` is reference data and survives account/transaction
+  // wipes; without this filter the chart would keep rendering orphaned
+  // history from deleted accounts.
+  const scopeAccountIds = filteringAccounts ? filters.accountIds! : ids;
+  const scopeAssetIds = await assetIdsForAccounts(scopeAccountIds, db);
+  if (scopeAssetIds.size === 0) return [];
+  const scopeAssetIdList: string[] = [...scopeAssetIds];
+
+  // Bound the chart's time window by the current transactions' range: start
+  // at the oldest trade in scope, end at today (never extrapolate before the
+  // first trade). This keeps the series honest after a wipe + partial
+  // reimport — the line can't run across dates when the position didn't yet
+  // exist.
+  const tradeBoundsConds = [inArray(assetTransactions.assetId, scopeAssetIdList)];
   if (filteringAccounts) {
-    const scopeAssetIds = await assetIdsForAccounts(filters.accountIds!, db);
-    if (scopeAssetIds.size === 0) return [];
-    scopeAssetIdList = [...scopeAssetIds];
-    conds.push(inArray(assetValuations.assetId, scopeAssetIdList));
+    tradeBoundsConds.push(inArray(assetTransactions.accountId, scopeAccountIds));
   }
+  const tradeBoundsRow = await db
+    .select({
+      minTradedAt: sql<number | null>`min(${assetTransactions.tradedAt})`,
+      maxTradedAt: sql<number | null>`max(${assetTransactions.tradedAt})`,
+    })
+    .from(assetTransactions)
+    .where(and(...tradeBoundsConds))
+    .get();
+  const oldestTradeMs = tradeBoundsRow?.minTradedAt ?? null;
+  if (oldestTradeMs === null) return [];
+  const oldestTradeIso = toIsoDate(new Date(oldestTradeMs));
+
+  const rangeStartDate = rangeStart(filters.range);
+  const effectiveStart = rangeStartDate
+    ? rangeStartDate.getTime() > oldestTradeMs
+      ? rangeStartDate
+      : new Date(oldestTradeMs)
+    : new Date(oldestTradeMs);
+  const end = new Date();
+
+  const startIso = toIsoDate(effectiveStart);
+  const conds = [
+    lte(assetValuations.valuationDate, toIsoDate(end)),
+    gte(assetValuations.valuationDate, startIso),
+    inArray(assetValuations.assetId, scopeAssetIdList),
+  ];
+  void oldestTradeIso;
 
   const rows = await db
     .select()
@@ -246,15 +276,16 @@ export async function getNetWorthSeries(
     .orderBy(asc(assetValuations.valuationDate))
     .all();
 
-  // Carry-in baseline: for each asset that had a valuation on or before the
-  // range start, seed a synthetic row at `startIso` so the forward-fill
-  // doesn't start from zero. Without this, an asset bought pre-range with a
-  // stable valuation shows up as 0 until its next in-range valuation row.
+  // Carry-in baseline: only seed when the chart is clamped by a user-selected
+  // range that is *later* than the oldest trade — in that case assets bought
+  // pre-window had a stable valuation we need to forward-fill from. When the
+  // window starts exactly at the oldest trade, the position didn't exist
+  // before and there's nothing to carry in.
   const carryIns: typeof rows = [];
-  if (startIso) {
-    const seedAssetIds =
-      scopeAssetIdList ??
-      [...new Set(rows.map((r) => r.assetId))];
+  const seededByRange =
+    rangeStartDate !== null && rangeStartDate.getTime() > oldestTradeMs;
+  if (seededByRange) {
+    const seedAssetIds = scopeAssetIdList;
     for (const assetId of seedAssetIds) {
       const earliestInRange = rows.find((r) => r.assetId === assetId);
       if (earliestInRange && earliestInRange.valuationDate === startIso) continue;
@@ -281,13 +312,13 @@ export async function getNetWorthSeries(
   // do, Sat/Sun dates in the series are noise — either forward-filled stock
   // values (flat) or empty gaps — and we drop them so the chart stays at one
   // point per trading day.
-  const scopeAssetIds = new Set(allRows.map((r) => r.assetId));
+  const presentAssetIds = new Set(allRows.map((r) => r.assetId));
   let includeWeekends = false;
-  if (scopeAssetIds.size > 0) {
+  if (presentAssetIds.size > 0) {
     const types = await db
       .select({ assetType: assets.assetType })
       .from(assets)
-      .where(inArray(assets.id, [...scopeAssetIds]))
+      .where(inArray(assets.id, [...presentAssetIds]))
       .all();
     includeWeekends = types.some((t) => t.assetType === "crypto");
   }

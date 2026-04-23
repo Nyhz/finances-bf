@@ -1,14 +1,17 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
-import { recomputeLotsForAsset } from "../server/tax/lots";
-import { recomputeAssetPosition, recomputeAccountCashBalance } from "../server/recompute";
+import { rebuildAfterTradeMutation } from "../server/mutations";
 import { createSwapSchema } from "./createSwap.schema";
-import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
+import {
+  ACTOR,
+  type ActionResult,
+  isCashBearingAccount,
+  revalidateTradeMutation,
+} from "./_shared";
 
 export async function createSwap(
   input: unknown,
@@ -60,14 +63,9 @@ export async function createSwap(
         notes: data.notes ?? `swap ← ${outgoing.name}`,
       }).run();
 
-      recomputeAssetPosition(tx, data.accountId, data.outgoingAssetId);
-      recomputeAssetPosition(tx, data.accountId, data.incomingAssetId);
-      recomputeLotsForAsset(tx, data.outgoingAssetId);
-      recomputeLotsForAsset(tx, data.incomingAssetId);
-
       if (isCashBearingAccount(account.accountType)) {
-        // A swap nets to zero cash (value out equals value in), so record a zero cash movement
-        // for traceability and trigger balance recompute.
+        // A swap nets to zero cash (value out equals value in), so record a
+        // zero cash movement for traceability. Balance refresh happens below.
         tx.insert(accountCashMovements).values({
           id: ulid(),
           accountId: data.accountId,
@@ -85,8 +83,11 @@ export async function createSwap(
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }).run();
-        recomputeAccountCashBalance(tx, data.accountId);
       }
+      rebuildAfterTradeMutation(tx, data.accountId, [
+        data.outgoingAssetId,
+        data.incomingAssetId,
+      ]);
 
       tx.insert(auditEvents).values({
         id: ulid(),
@@ -105,11 +106,7 @@ export async function createSwap(
       return { sellId, buyId };
     });
 
-    revalidatePath("/transactions");
-    revalidatePath("/accounts");
-    revalidatePath("/overview");
-    revalidatePath("/taxes");
-    revalidatePath("/assets");
+    revalidateTradeMutation(data.accountId);
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";

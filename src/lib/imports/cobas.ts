@@ -1,5 +1,6 @@
 import {
   assetHintKey,
+  caseInsensitive,
   makeRowFingerprint,
   normaliseDate,
   parseCsv,
@@ -161,8 +162,3 @@ function mapCashMovement(op: string): CashMovementKind | null {
   return null;
 }
 
-function caseInsensitive(rec: Record<string, string>) {
-  const map = new Map<string, string>();
-  for (const [k, v] of Object.entries(rec)) map.set(k.toLowerCase(), v);
-  return (key: string) => map.get(key.toLowerCase()) ?? "";
-}

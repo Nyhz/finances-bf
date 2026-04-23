@@ -32,8 +32,9 @@ export function WipeAppCard() {
     <Card title="Danger zone">
       <div className="flex flex-col gap-3 p-4">
         <p className="text-sm text-muted-foreground">
-          Wipe every account, transaction, cash movement, import session and
-          audit entry. Assets and their price history are preserved.
+          Wipe everything except the raw price-history feed (Yahoo /
+          CoinGecko bars) and the asset catalog. Accounts, transactions,
+          valuations, FX rates, imports, tax rows and audit entries all go.
         </p>
         <div>
           <Button variant="danger" onClick={() => setOpen(true)}>
@@ -55,9 +56,10 @@ export function WipeAppCard() {
         description={
           <div className="flex flex-col gap-3">
             <p>
-              This permanently deletes every account, transaction, cash
-              movement, import, and audit entry. Assets and their price history
-              are kept.
+              Permanently deletes everything except the asset catalog and the
+              raw price-history feed (Yahoo / CoinGecko bars). Accounts,
+              transactions, cash movements, valuations, FX rates, imports,
+              tax rows and audit entries are all wiped.
             </p>
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">

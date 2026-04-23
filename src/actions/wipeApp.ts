@@ -8,8 +8,10 @@ import {
   accounts,
   assetPositions,
   assetTransactions,
+  assetValuations,
   auditEvents,
   dailyBalances,
+  fxRates,
   taxLotConsumptions,
   taxLots,
   taxWashSaleAdjustments,
@@ -23,10 +25,11 @@ const wipeAppSchema = z.object({
   confirmation: z.literal("WIPE"),
 });
 
-// Wipes the operational state of the app (accounts, transactions, imports,
-// audit, derived balances) while preserving the immutable reference data:
-// assets, asset_valuations, price_history, fx_rates. Equivalent to starting
-// a clean book of records without re-downloading price history.
+// Wipes everything except the two immutable reference feeds: `assets` and
+// `price_history` (raw Yahoo/CoinGecko bars). FX rates, valuations,
+// positions, transactions, accounts, imports, tax rows, daily balances and
+// audit entries are all truncated — they're all derived from imports and
+// will be rebuilt on the next CSV load.
 export async function wipeApp(
   input: unknown,
   db: DB = defaultDb,
@@ -54,6 +57,8 @@ export async function wipeApp(
       tx.delete(accountCashMovements).run();
       tx.delete(assetTransactions).run();
       tx.delete(assetPositions).run();
+      tx.delete(assetValuations).run();
+      tx.delete(fxRates).run();
       tx.delete(dailyBalances).run();
       tx.delete(accounts).run();
       tx.delete(auditEvents).run();

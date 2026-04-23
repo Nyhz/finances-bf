@@ -1,6 +1,7 @@
 import { and, eq, gt, gte, lte } from "drizzle-orm";
 import { ulid } from "ulid";
 import { roundEur } from "../../lib/money";
+import { DAY_MS } from "../../lib/time";
 import type { db, DB } from "../../db/client";
 import {
   assetTransactions,
@@ -14,7 +15,6 @@ import {
 type Tx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
 type DbOrTx = DB | Tx;
 
-const DAY = 86_400_000;
 
 export function checkSaleAtLoss(
   tx: DbOrTx,
@@ -28,7 +28,7 @@ export function checkSaleAtLoss(
 
   const asset = tx.select().from(assets).where(eq(assets.id, saleRow.assetId)).get();
   const windowDays = asset?.assetClassTax === "unlisted_security" ? 365 : 60;
-  const windowMs = windowDays * DAY;
+  const windowMs = windowDays * DAY_MS;
 
   const acquisitions = tx
     .select()

@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseDegiroStatementCsv } from "../degiro-statement";
+import { parseDegiroCsv } from "../degiro";
 
 const FIXTURE = readFileSync(
-  join(__dirname, "../__fixtures__/degiro-statement.sample.csv"),
+  join(__dirname, "../__fixtures__/degiro.sample.csv"),
   "utf8",
 );
 
-describe("parseDegiroStatementCsv", () => {
-  const result = parseDegiroStatementCsv(FIXTURE);
+describe("parseDegiroCsv", () => {
+  const result = parseDegiroCsv(FIXTURE);
 
   it("produces no parse errors", () => {
     expect(result.errors).toHaveLength(0);
@@ -64,7 +64,7 @@ describe("parseDegiroStatementCsv", () => {
   });
 
   it("produces stable rowFingerprint for dedup", () => {
-    const rerun = parseDegiroStatementCsv(FIXTURE);
+    const rerun = parseDegiroCsv(FIXTURE);
     const a = result.rows.map((r) => r.rowFingerprint).sort();
     const b = rerun.rows.map((r) => r.rowFingerprint).sort();
     expect(b).toEqual(a);

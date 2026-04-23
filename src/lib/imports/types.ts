@@ -1,4 +1,4 @@
-export type ImportSource = "degiro" | "binance" | "cobas" | "degiro-statement";
+export type ImportSource = "degiro" | "binance" | "cobas";
 
 export type TradeSide = "buy" | "sell";
 

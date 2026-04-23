@@ -1,16 +1,20 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, desc, eq, lte } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, auditEvents, fxRates, type Account } from "../db/schema";
-import { toIsoDate } from "../lib/fx";
+import { toIsoDate } from "../lib/time";
+import { roundEur } from "../lib/money";
 
-import { ACCOUNT_TYPES, isCashBearingAccount } from "./_shared";
-
-const ACTOR = "commander";
+import {
+  ACCOUNT_TYPES,
+  ACTOR,
+  isCashBearingAccount,
+  revalidateAccountMutation,
+  type ActionResult,
+} from "./_shared";
 
 const createAccountSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -29,18 +33,6 @@ const createAccountSchema = z.object({
 });
 
 export type CreateAccountInput = z.input<typeof createAccountSchema>;
-
-export type ActionError = {
-  code: "validation" | "db";
-  message: string;
-  fieldErrors?: Record<string, string[]>;
-};
-
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: ActionError };
-
-function roundMoney(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 export async function createAccount(
   input: unknown,
@@ -90,7 +82,7 @@ export async function createAccount(
         }
       }
 
-      const openingBalanceEur = roundMoney(openingBalanceNative * rate);
+      const openingBalanceEur = roundEur(openingBalanceNative * rate);
       const now = Date.now();
       const id = ulid();
 
@@ -139,8 +131,7 @@ export async function createAccount(
       return row;
     });
 
-    revalidatePath("/accounts");
-    revalidatePath("/");
+    revalidateAccountMutation();
 
     return { ok: true, data: inserted };
   } catch (err) {

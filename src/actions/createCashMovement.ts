@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, desc, eq, lte } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
@@ -12,7 +11,11 @@ import {
   fxRates,
   type AccountCashMovement,
 } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import {
+  ACTOR,
+  type ActionResult,
+  revalidateCashMovement,
+} from "./_shared";
 import { cashMovementFingerprint } from "./_fingerprint";
 import { recomputeAccountCashBalance } from "../server/recompute";
 
@@ -144,12 +147,7 @@ export async function createCashMovement(
       return row;
     });
 
-    revalidatePath("/transactions");
-    revalidatePath("/accounts");
-    revalidatePath(`/accounts/${data.accountId}`);
-    revalidatePath("/overview");
-    revalidatePath("/");
-    revalidatePath("/audit");
+    revalidateCashMovement(data.accountId);
     return { ok: true, data: inserted };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

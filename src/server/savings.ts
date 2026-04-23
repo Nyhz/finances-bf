@@ -6,6 +6,7 @@ import {
   type AccountCashMovement,
 } from "../db/schema";
 import type { OverviewRange } from "./overview";
+import { toIsoDate } from "../lib/time";
 
 function rangeStart(range: OverviewRange, now: Date = new Date()): Date | null {
   if (range === "ALL") return null;
@@ -16,10 +17,6 @@ function rangeStart(range: OverviewRange, now: Date = new Date()): Date | null {
   else if (range === "6M") d.setUTCMonth(d.getUTCMonth() - 6);
   else if (range === "1Y") d.setUTCFullYear(d.getUTCFullYear() - 1);
   return d;
-}
-
-function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 export type SavingsKpis = {

@@ -7,15 +7,11 @@ import {
   assetTransactions,
 } from "../db/schema";
 import { isCashBearingAccount } from "../actions/_shared";
+import { round } from "../lib/money";
 
 // Drizzle better-sqlite3 tx handle type. We keep it loose to avoid a circular
 // import with the generated schema type — all calls here are schema-typed.
 type Tx = Parameters<Parameters<typeof import("../db/client").db.transaction>[0]>[0];
-
-function round(n: number, decimals = 6): number {
-  const f = 10 ** decimals;
-  return Math.round(n * f) / f;
-}
 
 /**
  * Recompute the (global) asset_positions row by walking every asset_transactions
@@ -151,3 +147,4 @@ export function recomputeAccountCashBalance(tx: Tx, accountId: string): void {
     .where(eq(accounts.id, accountId))
     .run();
 }
+

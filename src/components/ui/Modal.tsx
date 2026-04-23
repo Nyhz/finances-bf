@@ -40,8 +40,10 @@ export function Modal({
                 {title}
               </Dialog.Title>
               {description && (
-                <Dialog.Description className="text-sm text-muted-foreground">
-                  {description}
+                <Dialog.Description asChild>
+                  <div className="text-sm text-muted-foreground">
+                    {description}
+                  </div>
                 </Dialog.Description>
               )}
             </div>

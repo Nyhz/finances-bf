@@ -50,6 +50,51 @@ describe("parseBinanceCsv", () => {
     }
   });
 
+  it("emits both legs of a crypto-crypto permuta (ETHBTC BUY → +ETH, -BTC)", () => {
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
+      "2026-03-22 19:30:09,ETHBTC,BUY,0.058,0.5,0.029,0.0001,BTC\n";
+    const { rows } = parseBinanceCsv(csv);
+    const trades = rows.filter((r) => r.kind === "trade");
+    expect(trades).toHaveLength(2);
+    const ethLeg = trades.find((t) => t.assetHint.symbol === "ETH");
+    const btcLeg = trades.find((t) => t.assetHint.symbol === "BTC");
+    expect(ethLeg?.side).toBe("buy");
+    expect(ethLeg?.quantity).toBe(0.5);
+    expect(ethLeg?.priceNative).toBe(0.058);
+    expect(ethLeg?.currency).toBe("BTC");
+    expect(btcLeg?.side).toBe("sell");
+    expect(btcLeg?.quantity).toBe(0.029);
+    expect(btcLeg?.priceNative).toBe(1);
+    expect(btcLeg?.currency).toBe("BTC");
+    expect(ethLeg?.rowFingerprint).not.toBe(btcLeg?.rowFingerprint);
+  });
+
+  it("emits both legs for a stablecoin-quoted trade (SOLUSDT BUY → +SOL, -USDT)", () => {
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
+      "2026-02-18 21:03:44,SOLUSDT,BUY,95.40,10,954,0.01,SOL\n";
+    const { rows } = parseBinanceCsv(csv);
+    const trades = rows.filter((r) => r.kind === "trade");
+    expect(trades).toHaveLength(2);
+    const sol = trades.find((t) => t.assetHint.symbol === "SOL");
+    const usdt = trades.find((t) => t.assetHint.symbol === "USDT");
+    expect(sol?.side).toBe("buy");
+    expect(usdt?.side).toBe("sell");
+    expect(usdt?.quantity).toBe(954);
+  });
+
+  it("does NOT emit a second leg for fiat-quoted trades", () => {
+    const csv =
+      "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
+      "2026-01-15 10:21:33,BTCEUR,BUY,42000,0.05,2100,2.10,EUR\n";
+    const { rows } = parseBinanceCsv(csv);
+    const trades = rows.filter((r) => r.kind === "trade");
+    expect(trades).toHaveLength(1);
+    expect(trades[0].assetHint.symbol).toBe("BTC");
+    expect(trades[0].currency).toBe("EUR");
+  });
+
   it("reports parse errors for unrecognised pairs", () => {
     const broken = "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n2026-01-01 00:00:00,XYZNOTAPAIR,BUY,1,1,1,0,EUR\n";
     const result = parseBinanceCsv(broken);

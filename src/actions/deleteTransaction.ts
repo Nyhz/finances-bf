@@ -1,14 +1,17 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { accountCashMovements, accounts, assetTransactions, auditEvents } from "../db/schema";
-import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
-import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
-import { recomputeLotsForAsset } from "../server/tax/lots";
+import {
+  ACTOR,
+  type ActionResult,
+  isCashBearingAccount,
+  revalidateTradeMutation,
+} from "./_shared";
+import { rebuildAfterTradeMutation } from "../server/mutations";
 
 import { deleteTransactionSchema } from "./deleteTransaction.schema";
 
@@ -57,11 +60,7 @@ export async function deleteTransaction(
 
       tx.delete(assetTransactions).where(eq(assetTransactions.id, id)).run();
 
-      recomputeAssetPosition(tx, previous.accountId, previous.assetId);
-      recomputeLotsForAsset(tx, previous.assetId);
-      if (tracksCash) {
-        recomputeAccountCashBalance(tx, previous.accountId);
-      }
+      rebuildAfterTradeMutation(tx, previous.accountId, previous.assetId);
 
       tx
         .insert(auditEvents)
@@ -83,14 +82,7 @@ export async function deleteTransaction(
       return { accountId: previous.accountId };
     });
 
-    revalidatePath("/transactions");
-    revalidatePath("/accounts");
-    revalidatePath(`/accounts/${accountId}`);
-    revalidatePath("/overview");
-    revalidatePath("/");
-    revalidatePath("/assets");
-    revalidatePath("/audit");
-    revalidatePath("/taxes");
+    revalidateTradeMutation(accountId);
     return { ok: true, data: { id } };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

@@ -1,12 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { assets, auditEvents, type Asset } from "../db/schema";
-import { ACTOR, type ActionResult } from "./_shared";
+import { ACTOR, type ActionResult, revalidateAssetMetadata } from "./_shared";
 
 import { deactivateAssetSchema } from "./deactivateAsset.schema";
 
@@ -60,9 +60,7 @@ export async function deactivateAsset(
       return row;
     });
 
-    revalidatePath("/assets");
-    revalidatePath("/overview");
-    revalidatePath("/audit");
+    revalidateAssetMetadata();
     return { ok: true, data: updated };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

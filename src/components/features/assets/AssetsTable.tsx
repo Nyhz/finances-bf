@@ -8,12 +8,13 @@ import { Button } from "@/src/components/ui/Button";
 import { ConfirmModal } from "@/src/components/ui/ConfirmModal";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { deactivateAsset } from "@/src/actions/deactivateAsset";
+import { deleteAsset } from "@/src/actions/deleteAsset";
 import type { Asset } from "@/src/db/schema";
 import type { AssetListRow } from "@/src/server/assets";
 import { EditAssetModal } from "./EditAssetModal";
 import { SetManualPriceModal } from "./SetManualPriceModal";
 
-type ModalKind = "edit" | "price" | "deactivate" | null;
+type ModalKind = "edit" | "price" | "deactivate" | "delete" | null;
 
 function FreshnessCell({ row }: { row: AssetListRow }) {
   const f = row.freshness;
@@ -51,9 +52,22 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
     setModal(null);
   }
 
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+
   async function confirmDeactivate() {
     if (!active) return;
     await deactivateAsset({ id: active.id });
+    closeModal();
+  }
+
+  async function confirmDelete() {
+    if (!active) return;
+    setDeleteError(null);
+    const result = await deleteAsset({ id: active.id });
+    if (!result.ok) {
+      setDeleteError(result.error.message);
+      throw new Error(result.error.message);
+    }
     closeModal();
   }
 
@@ -112,6 +126,9 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
                     >
                       Deactivate
                     </MenuItem>
+                    <MenuItem onSelect={() => open("delete", r)} danger>
+                      Delete
+                    </MenuItem>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
@@ -147,6 +164,34 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
         description="The asset stays in history but is hidden from new transactions."
         confirmLabel="Deactivate"
         onConfirm={confirmDeactivate}
+      />
+
+      <ConfirmModal
+        open={modal === "delete"}
+        onOpenChange={(next) => {
+          if (!next) {
+            closeModal();
+            setDeleteError(null);
+          }
+        }}
+        title={`Delete ${active?.name ?? "asset"}?`}
+        description={
+          <div className="flex flex-col gap-2">
+            <p>
+              Permanently deletes the asset together with every price
+              valuation and position row for it. Refused if any transaction
+              still references the asset — delete those first.
+            </p>
+            {deleteError && (
+              <p className="text-sm font-medium text-destructive">
+                {deleteError}
+              </p>
+            )}
+          </div>
+        }
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={confirmDelete}
       />
     </>
   );

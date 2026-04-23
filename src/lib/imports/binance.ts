@@ -1,5 +1,6 @@
 import {
   assetHintKey,
+  caseInsensitive,
   makeRowFingerprint,
   normaliseDate,
   parseCsv,
@@ -35,6 +36,17 @@ const QUOTE_CURRENCIES = [
   "ETH",
   "BNB",
 ];
+
+/**
+ * Fiat quote currencies. Trading crypto against fiat is a plain buy/sell
+ * for Spanish tax purposes — no second leg needed. Everything else in
+ * QUOTE_CURRENCIES (BTC, ETH, BNB, USDT, USDC, DAI, BUSD, TUSD, FDUSD) is
+ * treated as a crypto quote → we emit both legs of the swap so the
+ * outgoing asset gets disposed FIFO (realising gain/loss vs cost basis in
+ * EUR) and the incoming asset gets a new lot at market value. This matches
+ * the DGT consultations V0999-18 / V1149-20 on permutas entre criptomonedas.
+ */
+const FIAT_QUOTE_CURRENCIES = new Set(["EUR", "GBP", "TRY", "BRL", "AUD"]);
 
 export function parseBinanceCsv(csv: string): ImportParseResult {
   const rows = parseCsv(csv);
@@ -90,7 +102,7 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
     }
 
     const accountHint = lookup("Account") || "binance-spot";
-    const assetHint = { symbol: split.base };
+    const baseAssetHint = { symbol: split.base };
     // Binance fees are dust (cents of BNB per trade) and create heavy
     // bookkeeping overhead — synthetic BNB fee-disposals, noisy tax lots,
     // rounding drift. We intentionally drop them: fees are ignored on the
@@ -100,11 +112,11 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
     void fee;
     void feeCoin;
 
-    const tradeFingerprint = makeRowFingerprint({
+    const baseFingerprint = makeRowFingerprint({
       source: SOURCE,
       accountHint,
       tradeDate,
-      assetHint: assetHintKey(assetHint),
+      assetHint: assetHintKey(baseAssetHint),
       side,
       quantity: executed.value,
       priceNative: price,
@@ -118,9 +130,9 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       source: SOURCE,
       tradeDate,
       accountHint,
-      rowFingerprint: tradeFingerprint,
+      rowFingerprint: baseFingerprint,
       rawRow: rec,
-      assetHint,
+      assetHint: baseAssetHint,
       side,
       quantity: executed.value,
       priceNative: price,
@@ -128,9 +140,46 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       fees: null,
     });
 
-    // Quote-currency amount sanity could be checked; but we don't fail when
-    // executed*price ≠ amount because Binance occasionally rounds.
-    void amount;
+    // Crypto-crypto permuta: Binance represents a swap as ONE CSV row, but
+    // fiscally it is two events — dispose the outgoing asset, acquire the
+    // incoming asset, each valued at EUR market rate that day. Emit the
+    // mirror leg so FIFO consumes the quote-side position and a fresh lot
+    // is opened for the base side with cost basis in EUR. `priceNative = 1`
+    // in the quote currency: `insertTrade` converts via fx_rates[quote] ->
+    // EUR, so the EUR value of the quote leg ends up equal to the EUR value
+    // of the base leg for that day.
+    if (!FIAT_QUOTE_CURRENCIES.has(split.quote)) {
+      const quoteQty =
+        amount.value ?? (executed.value != null ? executed.value * price : 0);
+      if (quoteQty > 0) {
+        const quoteSide = side === "buy" ? "sell" : "buy";
+        const quoteAssetHint = { symbol: split.quote };
+        const quoteFingerprint = makeRowFingerprint({
+          source: SOURCE,
+          accountHint,
+          tradeDate,
+          assetHint: assetHintKey(quoteAssetHint),
+          side: quoteSide,
+          quantity: quoteQty,
+          priceNative: 1,
+          rowIndex: idx,
+        });
+        out.push({
+          kind: "trade",
+          source: SOURCE,
+          tradeDate,
+          accountHint,
+          rowFingerprint: quoteFingerprint,
+          rawRow: rec,
+          assetHint: quoteAssetHint,
+          side: quoteSide,
+          quantity: quoteQty,
+          priceNative: 1,
+          currency: split.quote,
+          fees: null,
+        });
+      }
+    }
   });
 
   return { source: SOURCE, rows: out, errors };
@@ -145,8 +194,3 @@ function splitPair(pair: string): { base: string; quote: string } | null {
   return null;
 }
 
-function caseInsensitive(rec: Record<string, string>) {
-  const map = new Map<string, string>();
-  for (const [k, v] of Object.entries(rec)) map.set(k.toLowerCase(), v);
-  return (key: string) => map.get(key.toLowerCase()) ?? "";
-}

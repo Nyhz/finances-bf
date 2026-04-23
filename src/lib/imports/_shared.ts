@@ -175,6 +175,19 @@ export function parseNumericPrefix(raw: string | undefined | null): {
   };
 }
 
+/**
+ * Build a case-insensitive column accessor for a row parsed into a record.
+ * DEGIRO / Binance / CoBaS all ship with inconsistent header casing — this
+ * lives here so each parser doesn't need to redefine it.
+ */
+export function caseInsensitive(
+  rec: Record<string, string>,
+): (key: string) => string {
+  const map = new Map<string, string>();
+  for (const [k, v] of Object.entries(rec)) map.set(k.toLowerCase(), v);
+  return (key: string) => map.get(key.toLowerCase()) ?? "";
+}
+
 /** Convert "DD-MM-YYYY" or "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS" to ISO date. */
 export function normaliseDate(raw: string): string | null {
   const s = raw.trim();

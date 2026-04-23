@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { and, desc, eq, lte } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
@@ -13,25 +12,18 @@ import {
   auditEvents,
   type AssetTransaction,
 } from "../db/schema";
-import { ACTOR, type ActionResult, isCashBearingAccount } from "./_shared";
+import {
+  ACTOR,
+  type ActionResult,
+  isCashBearingAccount,
+  revalidateTradeMutation,
+} from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
-import { recomputeAccountCashBalance, recomputeAssetPosition } from "../server/recompute";
-import { recomputeLotsForAsset } from "../server/tax/lots";
+import { rebuildAfterTradeMutation } from "../server/mutations";
 import { fxRates } from "../db/schema";
 import { roundEur as round } from "../lib/money";
 
 import { createTransactionSchema } from "./createTransaction.schema";
-
-function revalidateTransactionPaths(accountId: string) {
-  revalidatePath("/transactions");
-  revalidatePath("/accounts");
-  revalidatePath(`/accounts/${accountId}`);
-  revalidatePath("/overview");
-  revalidatePath("/");
-  revalidatePath("/assets");
-  revalidatePath("/audit");
-  revalidatePath("/taxes");
-}
 
 export async function createTransaction(
   input: unknown,
@@ -129,9 +121,6 @@ export async function createTransaction(
         })
         .run();
 
-      recomputeAssetPosition(tx, data.accountId, data.assetId);
-      recomputeLotsForAsset(tx, data.assetId);
-
       const tracksCash = isCashBearingAccount(account.accountType);
       if (tracksCash) {
         tx
@@ -154,8 +143,9 @@ export async function createTransaction(
             updatedAt: now,
           })
           .run();
-        recomputeAccountCashBalance(tx, data.accountId);
       }
+      // Single source of truth: positions + lots + valuations + cash balance.
+      rebuildAfterTradeMutation(tx, data.accountId, data.assetId);
 
       const row = tx
         .select()
@@ -184,7 +174,7 @@ export async function createTransaction(
       return row;
     });
 
-    revalidateTransactionPaths(data.accountId);
+    revalidateTradeMutation(data.accountId);
     return { ok: true, data: inserted };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";

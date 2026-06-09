@@ -21,6 +21,8 @@ export function buildCasillasCsv(report: TaxReport): string {
   rows.push({ casilla: "0588", label: "Deducción doble imposición internacional", valueEur: Math.round(ddi * 100) / 100 });
 
   const header = "casilla|etiqueta|valor_eur";
-  const body = rows.map((r) => `${r.casilla}|${r.label}|${r.valueEur}`).join("\n");
+  // Audit T9: serialize money at exactly 2dp — raw doubles leak artifacts
+  // like 1234.5600000000002 into the filed CSV.
+  const body = rows.map((r) => `${r.casilla}|${r.label}|${r.valueEur.toFixed(2)}`).join("\n");
   return `\uFEFF${header}\n${body}\n`;
 }

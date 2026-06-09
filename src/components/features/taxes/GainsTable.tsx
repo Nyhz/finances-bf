@@ -1,15 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
+import { Badge } from "@/src/components/ui/Badge";
 import { Card } from "@/src/components/ui/Card";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { formatDate, formatEur } from "@/src/lib/format";
-import type { SaleReportRow } from "@/src/server/tax/report";
+import type { SaleReportRow, TaxReport } from "@/src/server/tax/report";
 import { GainsLotDetail } from "./GainsLotDetail";
 
-type Props = { sales: SaleReportRow[] };
+type Props = {
+  sales: SaleReportRow[];
+  excludedSales?: TaxReport["excludedSales"];
+};
 
-export function GainsTable({ sales }: Props) {
+export function GainsTable({ sales, excludedSales }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -61,7 +65,18 @@ export function GainsTable({ sales }: Props) {
                       </button>
                     </td>
                     <td>{formatDate(s.tradedAt)}</td>
-                    <td>{s.assetName ?? s.assetId}</td>
+                    <td>
+                      {s.assetName ?? s.assetId}
+                      {s.valuationBasis === "market-fx" ? (
+                        <Badge
+                          variant="warning"
+                          className="ml-1.5"
+                          title="Crypto permuta: the EUR value of this disposal comes from the quote currency's market daily close, not user-entered data (DGT V0999-18)."
+                        >
+                          market-valued
+                        </Badge>
+                      ) : null}
+                    </td>
                     <td className="text-right tabular-nums">{s.quantity.toFixed(6)}</td>
                     <td className="text-right tabular-nums">
                       <SensitiveValue>{formatEur(s.proceedsEur)}</SensitiveValue>
@@ -96,6 +111,14 @@ export function GainsTable({ sales }: Props) {
           </tbody>
         </table>
       </div>
+      {excludedSales && excludedSales.count > 0 ? (
+        <p className="px-4 pb-3 text-xs text-muted-foreground">
+          Dust filter: {excludedSales.count} micro-disposal
+          {excludedSales.count === 1 ? "" : "s"} excluded (proceeds{" "}
+          <SensitiveValue>{formatEur(excludedSales.proceedsEur)}</SensitiveValue>, cost
+          basis <SensitiveValue>{formatEur(excludedSales.costBasisEur)}</SensitiveValue>).
+        </p>
+      ) : null}
     </Card>
   );
 }

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 // note: confirmImport also touches /imports specifically (the list of past
 // imports), so it keeps the raw `revalidatePath` import + uses the shared
 // helper for the common pages.
@@ -14,9 +14,10 @@ import {
   assetTransactions,
   assets,
   auditEvents,
-  fxRates,
   type Asset,
 } from "../db/schema";
+import { resolveFxForDate } from "./_fx";
+import type { FxRateResult } from "../lib/fx";
 import {
   ACTOR,
   type ActionResult,
@@ -49,7 +50,10 @@ import { confirmImportSchema, type ConfirmImportResult } from "./confirmImport.s
 function gatherFxPlan(rows: ParsedImportRow[]): Map<string, string> {
   const perCurrencyFromIso = new Map<string, string>();
   for (const row of rows) {
-    if (row.kind !== "trade") continue;
+    // Every row kind can need FX at insert time (audit T3): trades,
+    // dividends AND cash movements. Rows carrying a broker-derived
+    // fxRateToEurOverride still get their currency fetched — the bars also
+    // feed the valuation rebuild.
     const ccy = row.currency.toUpperCase();
     if (ccy === "EUR") continue;
     const iso = row.tradeDate;
@@ -83,24 +87,13 @@ function findAsset(tx: Tx, hint: AssetHint | null | undefined): Asset | null {
   return null;
 }
 
-function resolveFx(tx: Tx, currency: string, isoDate: string): number {
-  if (currency === "EUR") return 1;
-  const onDate = tx
-    .select()
-    .from(fxRates)
-    .where(and(eq(fxRates.currency, currency), eq(fxRates.date, isoDate)))
-    .get();
-  if (onDate) return onDate.rateToEur;
-  const latest = tx
-    .select()
-    .from(fxRates)
-    .where(and(eq(fxRates.currency, currency), lte(fxRates.date, isoDate)))
-    .orderBy(desc(fxRates.date))
-    .get();
-  if (!latest) {
-    throw new Error(`No FX rate available for ${currency} on ${isoDate}`);
-  }
-  return latest.rateToEur;
+function resolveFx(
+  tx: Tx,
+  currency: string,
+  isoDate: string,
+  explicitRate?: number | null,
+): FxRateResult {
+  return resolveFxForDate(tx, currency, isoDate, explicitRate);
 }
 
 function isDuplicate(tx: Tx, fingerprint: string): boolean {
@@ -178,10 +171,15 @@ function insertTrade(
   source: ImportSource,
   tracksCash: boolean,
 ): void {
-  const rate =
+  const fx = resolveFx(
+    tx,
+    row.currency,
+    row.tradeDate,
     row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
       ? row.fxRateToEurOverride
-      : resolveFx(tx, row.currency, row.tradeDate);
+      : null,
+  );
+  const rate = fx.rate;
   const sign = row.side === "buy" ? -1 : 1;
   const tradeGrossAmount = row.quantity * row.priceNative;
   const tradeGrossAmountEur = roundEur(tradeGrossAmount * rate);
@@ -203,6 +201,8 @@ function insertTrade(
       unitPrice: row.priceNative,
       tradeCurrency: row.currency,
       fxRateToEur: rate,
+      fxSource: fx.source,
+      valuationBasis: row.valuationBasis ?? null,
       tradeGrossAmount: roundEur(tradeGrossAmount),
       tradeGrossAmountEur,
       cashImpactEur: roundEur(cashImpactEur),
@@ -227,6 +227,7 @@ function insertTrade(
         nativeAmount: roundEur(sign * tradeGrossAmount - fees),
         currency: row.currency,
         fxRateToEur: rate,
+        fxSource: fx.source,
         cashImpactEur: roundEur(cashImpactEur),
         externalReference: id,
         rowFingerprint: `trade:${id}`,
@@ -245,7 +246,8 @@ function insertCashMovement(
   row: Extract<ParsedImportRow, { kind: "cash_movement" }>,
   source: ImportSource,
 ): void {
-  const rate = resolveFx(tx, row.currency, row.tradeDate);
+  const fx = resolveFx(tx, row.currency, row.tradeDate);
+  const rate = fx.rate;
   const cashImpactEur = roundEur(row.amountNative * rate);
   const occurredAt = new Date(`${row.tradeDate}T12:00:00.000Z`).getTime();
   const now = Date.now();
@@ -259,6 +261,7 @@ function insertCashMovement(
       nativeAmount: row.amountNative,
       currency: row.currency,
       fxRateToEur: rate,
+      fxSource: fx.source,
       cashImpactEur,
       rowFingerprint: row.rowFingerprint,
       source,
@@ -276,10 +279,15 @@ function insertDividend(
   row: Extract<ParsedImportRow, { kind: "dividend" }>,
   source: ImportSource,
 ): void {
-  const fxRate =
+  const fx = resolveFx(
+    tx,
+    row.currency,
+    row.tradeDate,
     row.fxRateToEurOverride != null && row.fxRateToEurOverride > 0
       ? row.fxRateToEurOverride
-      : resolveFx(tx, row.currency, row.tradeDate);
+      : null,
+  );
+  const fxRate = fx.rate;
   const grossEur = roundEur(row.grossNative * fxRate);
   const whtOrigenEur = roundEur(row.withholdingOrigenNative * fxRate);
   const whtDestinoEur = row.withholdingDestinoEur ?? 0;
@@ -299,6 +307,7 @@ function insertDividend(
       unitPrice: 0,
       tradeCurrency: row.currency,
       fxRateToEur: fxRate,
+      fxSource: fx.source,
       tradeGrossAmount: row.grossNative,
       tradeGrossAmountEur: grossEur,
       cashImpactEur: netEur,
@@ -341,6 +350,25 @@ export async function confirmImport(
 
   const parseResult = runParser(source, csvText);
 
+  // Audit R8: unparseable rows are missing tax data. Refuse to commit unless
+  // the Commander explicitly acknowledges the listed rows.
+  if (parseResult.errors.length > 0 && !parsed.data.acknowledgeErrors) {
+    const sample = parseResult.errors
+      .slice(0, 5)
+      .map((e) => `row ${e.rowIndex + 1}: ${e.message}`)
+      .join("; ");
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message:
+          `${parseResult.errors.length} row(s) failed to parse and would be dropped — ` +
+          `${sample}${parseResult.errors.length > 5 ? "; …" : ""}. ` +
+          `Confirm again acknowledging the skipped rows, or fix the CSV.`,
+      },
+    };
+  }
+
   // --- Phase 1: fetch ALL FX data required for this batch (no DB writes) ---
   // Atomicity requirement: if any FX range fails, abort the entire import
   // before a single row touches the DB. Yahoo is tried first; if it has no
@@ -381,6 +409,7 @@ export async function confirmImport(
       const tracksCash = isCashBearingAccount(account.accountType);
 
       const touchedAssets = new Set<string>();
+      let earliestTradeIso: string | undefined;
       const fingerprints: string[] = [];
       let insertedTrades = 0;
       let insertedCashMovements = 0;
@@ -417,6 +446,9 @@ export async function confirmImport(
             createdAssets++;
           }
           insertTrade(tx, accountId, asset.id, row, source, tracksCash);
+          if (!earliestTradeIso || row.tradeDate < earliestTradeIso) {
+            earliestTradeIso = row.tradeDate;
+          }
           touchedAssets.add(asset.id);
           insertedTrades++;
           fingerprints.push(row.rowFingerprint);
@@ -434,6 +466,9 @@ export async function confirmImport(
             createdAssets++;
           }
           insertDividend(tx, accountId, asset.id, row, source);
+          if (!earliestTradeIso || row.tradeDate < earliestTradeIso) {
+            earliestTradeIso = row.tradeDate;
+          }
           touchedAssets.add(asset.id);
           insertedDividends++;
           fingerprints.push(row.rowFingerprint);
@@ -443,7 +478,8 @@ export async function confirmImport(
       // Rebuild positions/lots/valuations/cash for every touched asset in
       // one call. Uses CSV trade-time FX + locally-stored Yahoo / CoinGecko
       // price bars — no network calls here.
-      rebuildAfterTradeMutation(tx, accountId, touchedAssets);
+      // Window the valuation rebuild from the earliest inserted row (audit P1).
+      rebuildAfterTradeMutation(tx, accountId, touchedAssets, earliestTradeIso);
 
       const inserted = insertedTrades + insertedCashMovements + insertedDividends;
       const summary = `${source} import: ${inserted} inserted, ${skippedDuplicates} duplicates, ${createdAssets} new assets`;
@@ -468,6 +504,11 @@ export async function confirmImport(
             insertedDividends,
             skippedDuplicates,
             skippedErrors: parseResult.errors.length,
+            parseErrors: parseResult.errors.slice(0, 50).map((e) => ({
+              rowIndex: e.rowIndex,
+              message: e.message,
+              rawRow: e.rawRow,
+            })),
             createdAssets,
             fingerprints,
           }),

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
@@ -8,9 +8,10 @@ import {
   accountCashMovements,
   accounts,
   auditEvents,
-  fxRates,
   type AccountCashMovement,
 } from "../db/schema";
+import { FxDeviationError, resolveFxForDate } from "./_fx";
+import { FxUnavailableError } from "../lib/fx";
 import {
   ACTOR,
   type ActionResult,
@@ -60,42 +61,36 @@ export async function createCashMovement(
       const account = tx.select().from(accounts).where(eq(accounts.id, data.accountId)).get();
       if (!account) throw new Error(`account not found: ${data.accountId}`);
 
-      let rate = 1;
-      if (data.fxRateToEur != null) rate = data.fxRateToEur;
-      else if (currency !== "EUR") {
-        const onDate = tx
-          .select()
-          .from(fxRates)
-          .where(and(eq(fxRates.currency, currency), eq(fxRates.date, data.occurredAt)))
-          .get();
-        if (onDate) rate = onDate.rateToEur;
-        else {
-          const latest = tx
-            .select()
-            .from(fxRates)
-            .where(and(eq(fxRates.currency, currency), lte(fxRates.date, data.occurredAt)))
-            .orderBy(desc(fxRates.date))
-            .get();
-          if (!latest) throw new Error(`No FX rate available for ${currency} on ${data.occurredAt}`);
-          rate = latest.rateToEur;
-        }
-      }
+      const fx = resolveFxForDate(tx, currency, data.occurredAt, data.fxRateToEur, {
+        allowDeviation: data.allowFxDeviation,
+      });
+      const rate = fx.rate;
 
       const sign = signFor(data.kind);
-      // amountNative may be provided unsigned; sign it via `kind` semantics.
-      const magnitude = Math.abs(data.amountNative);
-      const nativeAmount = sign * magnitude;
+      // Schema guarantees a positive magnitude; `kind` provides the sign.
+      const nativeAmount = sign * data.amountNative;
       const cashImpactEur = Math.round(nativeAmount * rate * 100) / 100;
 
       const occurredAtMs = new Date(`${data.occurredAt}T12:00:00.000Z`).getTime();
       const id = ulid();
-      const fingerprint = cashMovementFingerprint({
+      const baseFingerprint = cashMovementFingerprint({
         accountId: data.accountId,
         kind: data.kind,
         occurredAt: data.occurredAt,
         amountNative: nativeAmount,
         currency,
       });
+      // Audit M7: two genuinely identical movements on one day are legitimate
+      // (two €100 top-ups) — flag as duplicate, salt the fingerprint on override.
+      const collision = tx
+        .select({ id: accountCashMovements.id })
+        .from(accountCashMovements)
+        .where(eq(accountCashMovements.rowFingerprint, baseFingerprint))
+        .get();
+      if (collision && !data.allowDuplicate) {
+        throw new Error(`duplicate cash movement: ${collision.id}`);
+      }
+      const fingerprint = collision ? `${baseFingerprint}:dup:${id}` : baseFingerprint;
       const now = Date.now();
 
       tx
@@ -108,6 +103,7 @@ export async function createCashMovement(
           nativeAmount,
           currency,
           fxRateToEur: rate,
+          fxSource: fx.source,
           cashImpactEur,
           rowFingerprint: fingerprint,
           source: "manual",
@@ -139,7 +135,12 @@ export async function createCashMovement(
           summary: row.description ?? null,
           previousJson: null,
           nextJson: JSON.stringify(row),
-          contextJson: JSON.stringify({ actor: ACTOR, fxRateToEur: rate }),
+          contextJson: JSON.stringify({
+            actor: ACTOR,
+            fxRateToEur: rate,
+            fxSource: fx.source,
+            fxStale: fx.stale ?? false,
+          }),
           createdAt: now,
         })
         .run();
@@ -150,7 +151,41 @@ export async function createCashMovement(
     revalidateCashMovement(data.accountId);
     return { ok: true, data: inserted };
   } catch (err) {
+    if (err instanceof FxUnavailableError) {
+      return {
+        ok: false,
+        error: {
+          code: "validation",
+          message: err.message,
+          fieldErrors: {
+            fxRateToEur: [
+              `No stored FX rate for ${err.currency} on or before ${err.isoDate} — enter the rate manually.`,
+            ],
+          },
+        },
+      };
+    }
+    if (err instanceof FxDeviationError) {
+      return {
+        ok: false,
+        error: {
+          code: "fx_deviation",
+          message: err.message,
+          fieldErrors: { fxRateToEur: [err.message] },
+        },
+      };
+    }
     const message = err instanceof Error ? err.message : "Unknown DB error";
+    if (message.startsWith("duplicate cash movement")) {
+      return {
+        ok: false,
+        error: {
+          code: "duplicate",
+          message:
+            "An identical cash movement (same account, kind, date, amount, currency) already exists.",
+        },
+      };
+    }
     if (message.startsWith("account not found")) {
       return { ok: false, error: { code: "not_found", message } };
     }

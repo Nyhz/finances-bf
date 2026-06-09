@@ -3,7 +3,10 @@
 import * as React from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { createTransaction } from "@/src/actions/createTransaction";
+import { previewFx, type FxPreview } from "@/src/actions/previewFx";
+import { formatEur } from "@/src/lib/format";
 
 export type AccountOption = { id: string; name: string; currency: string };
 export type AssetOption = { id: string; name: string; symbol: string | null; currency: string };
@@ -16,6 +19,7 @@ type FormState = {
   quantity: string;
   priceNative: string;
   currency: string;
+  fxRateToEur: string;
   fees: string;
   notes: string;
 };
@@ -47,6 +51,7 @@ export function CreateTransactionModal({
       quantity: "",
       priceNative: "",
       currency: assets[0]?.currency ?? "EUR",
+      fxRateToEur: "",
       fees: "0",
       notes: "",
     }),
@@ -56,6 +61,13 @@ export function CreateTransactionModal({
   const [form, setForm] = React.useState<FormState>(initial);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string[]>>({});
   const [banner, setBanner] = React.useState<string | null>(null);
+  const [duplicateWarning, setDuplicateWarning] = React.useState(false);
+  const [fxDeviationWarning, setFxDeviationWarning] = React.useState(false);
+  const [fxPreview, setFxPreview] = React.useState<FxPreview | null>(null);
+  const [fxUnavailable, setFxUnavailable] = React.useState(false);
+  // Sticky per-form acknowledgements so confirming one warning survives a
+  // second round-trip (e.g. FX override confirmed, then duplicate confirmed).
+  const acceptedRef = React.useRef({ duplicate: false, fxDeviation: false });
   const [pending, startTransition] = React.useTransition();
 
   function handleOpenChange(next: boolean) {
@@ -63,12 +75,20 @@ export function CreateTransactionModal({
       setForm(initial);
       setFieldErrors({});
       setBanner(null);
+      setDuplicateWarning(false);
+      setFxDeviationWarning(false);
+      acceptedRef.current = { duplicate: false, fxDeviation: false };
     }
     onOpenChange(next);
   }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    // Inputs that change which FX rate applies invalidate the live preview.
+    if (key === "currency" || key === "tradeDate") {
+      setFxPreview(null);
+      setFxUnavailable(false);
+    }
   }
 
   function onAssetChange(id: string) {
@@ -78,12 +98,57 @@ export function CreateTransactionModal({
       assetId: id,
       currency: asset?.currency ?? prev.currency,
     }));
+    setFxPreview(null);
+    setFxUnavailable(false);
   }
+
+  // Audit H3: show the rate that WILL be applied (and its provenance) before
+  // the user submits — money is never entered blind.
+  React.useEffect(() => {
+    if (!open || form.currency === "EUR" || !/^\d{4}-\d{2}-\d{2}$/.test(form.tradeDate)) {
+      return;
+    }
+    let cancelled = false;
+    previewFx({ currency: form.currency, date: form.tradeDate }).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setFxPreview(res.data);
+        setFxUnavailable(false);
+      } else {
+        setFxPreview(null);
+        setFxUnavailable(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.currency, form.tradeDate]);
+
+  const manualRate = form.fxRateToEur.trim() ? Number(form.fxRateToEur) : undefined;
+  const effectiveRate =
+    form.currency === "EUR" ? 1 : (manualRate ?? fxPreview?.rate);
+  const qtyNum = Number(form.quantity);
+  const priceNum = Number(form.priceNative);
+  const feesNum = Number(form.fees || 0);
+  const estimatedTotalEur =
+    effectiveRate != null &&
+    Number.isFinite(effectiveRate) &&
+    effectiveRate > 0 &&
+    qtyNum > 0 &&
+    priceNum > 0
+      ? (qtyNum * priceNum + (form.side === "buy" ? feesNum : -feesNum)) * effectiveRate
+      : null;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    submit();
+  }
+
+  function submit(extra?: { allowDuplicate?: boolean; allowFxDeviation?: boolean }) {
     setBanner(null);
     setFieldErrors({});
+    if (extra?.allowDuplicate) acceptedRef.current.duplicate = true;
+    if (extra?.allowFxDeviation) acceptedRef.current.fxDeviation = true;
 
     const payload = {
       accountId: form.accountId,
@@ -93,8 +158,11 @@ export function CreateTransactionModal({
       quantity: Number(form.quantity),
       priceNative: Number(form.priceNative),
       currency: form.currency.toUpperCase(),
+      fxRateToEur: form.fxRateToEur.trim() ? Number(form.fxRateToEur) : undefined,
       fees: Number(form.fees || 0),
       notes: form.notes.trim() ? form.notes : undefined,
+      allowDuplicate: acceptedRef.current.duplicate,
+      allowFxDeviation: acceptedRef.current.fxDeviation,
     };
 
     startTransition(async () => {
@@ -103,6 +171,19 @@ export function CreateTransactionModal({
         handleOpenChange(false);
         return;
       }
+      if (result.error.code === "duplicate") {
+        setDuplicateWarning(true);
+        setBanner(result.error.message);
+        return;
+      }
+      if (result.error.code === "fx_deviation") {
+        setFxDeviationWarning(true);
+        setBanner(result.error.message);
+        if (result.error.fieldErrors) setFieldErrors(result.error.fieldErrors);
+        return;
+      }
+      setDuplicateWarning(false);
+      setFxDeviationWarning(false);
       if (result.error.code === "validation" && result.error.fieldErrors) {
         setFieldErrors(result.error.fieldErrors);
       } else {
@@ -213,13 +294,16 @@ export function CreateTransactionModal({
             <input
               type="text"
               value={form.currency}
-              onChange={(e) => update("currency", e.target.value.toUpperCase())}
-              className={inputClass}
-              maxLength={3}
-              required
+              readOnly
+              aria-readonly="true"
+              tabIndex={-1}
+              className={`${inputClass} cursor-not-allowed bg-muted/40 text-muted-foreground`}
             />
+            <span className="text-xs text-muted-foreground">
+              Derived from the selected asset — the unit price is always in this currency.
+            </span>
           </Field>
-          <Field label="Fees" errors={fieldErrors.fees}>
+          <Field label={`Fees (${form.currency})`} errors={fieldErrors.fees}>
             <input
               type="number"
               inputMode="decimal"
@@ -231,6 +315,53 @@ export function CreateTransactionModal({
             />
           </Field>
         </div>
+
+        {form.currency !== "EUR" && (
+          <Field
+            label={`FX rate — 1 ${form.currency} = ? EUR (optional)`}
+            errors={fieldErrors.fxRateToEur}
+          >
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min="0"
+              placeholder={
+                fxPreview
+                  ? `Leave blank to use ${fxPreview.rate.toFixed(6)}`
+                  : "Leave blank to use the stored daily rate"
+              }
+              value={form.fxRateToEur}
+              onChange={(e) => update("fxRateToEur", e.target.value)}
+              className={inputClass}
+            />
+            {fxPreview && (
+              <span className="text-xs text-muted-foreground">
+                Stored rate: 1 {form.currency} = {fxPreview.rate.toFixed(6)} EUR
+                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""}
+                {fxPreview.stale
+                  ? " — stale: no rate for the trade date, most recent earlier rate shown"
+                  : ""}
+              </span>
+            )}
+            {fxUnavailable && (
+              <span className="text-xs text-destructive">
+                No stored rate for this currency/date — enter the broker&apos;s rate
+                (how many EUR one {form.currency} is worth).
+              </span>
+            )}
+          </Field>
+        )}
+
+        {estimatedTotalEur != null && (
+          <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">
+              Estimated {form.side === "buy" ? "cost incl. fees" : "net proceeds"}
+              {manualRate != null ? " (your rate)" : fxPreview?.stale ? " (stale rate)" : ""}
+            </span>
+            <SensitiveValue>{formatEur(estimatedTotalEur)}</SensitiveValue>
+          </div>
+        )}
 
         <Field label="Notes" errors={fieldErrors.notes}>
           <textarea
@@ -250,6 +381,26 @@ export function CreateTransactionModal({
           >
             Cancel
           </Button>
+          {duplicateWarning ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => submit({ allowDuplicate: true })}
+            >
+              Save anyway
+            </Button>
+          ) : null}
+          {fxDeviationWarning ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => submit({ allowFxDeviation: true })}
+            >
+              Use my rate anyway
+            </Button>
+          ) : null}
           <Button type="submit" disabled={pending || !form.accountId || !form.assetId}>
             {pending ? "Saving…" : "Create transaction"}
           </Button>

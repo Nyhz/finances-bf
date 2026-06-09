@@ -59,7 +59,12 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
 
   for (const row of rows) {
     if (row.transactionType === "buy") {
-      if (row.quantity <= 0) continue;
+      if (row.quantity <= 0) {
+        // Audit T11: a non-positive buy would silently vanish from cost basis.
+        throw new Error(
+          `tax-lots: buy ${row.id} for asset ${assetId} has non-positive quantity ${row.quantity} — corrupt row, fix or delete it`,
+        );
+      }
       const unitCostEur = roundEur((row.tradeGrossAmountEur + row.feesAmountEur) / row.quantity);
       const lotId = ulid();
       tx.insert(taxLots).values({

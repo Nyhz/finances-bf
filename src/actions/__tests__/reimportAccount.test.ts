@@ -61,3 +61,51 @@ describe("reimportAccount", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+// Audit R11: the wipe keeps the deleted rows in the audit event so a
+// mistaken reimport is recoverable.
+describe("reimportAccount recovery payload", () => {
+  function seedAccountWithTrade(db: DB) {
+    const accountId = ulid();
+    const assetId = ulid();
+    db.insert(accounts).values({
+      id: accountId, name: "DEGIRO", currency: "EUR",
+      accountType: "broker",
+      openingBalanceEur: 0, currentCashBalanceEur: 0,
+    }).run();
+    db.insert(assets).values({
+      id: assetId, name: "VWCE", assetType: "equity", currency: "EUR",
+      isActive: true, assetClassTax: "etf",
+    }).run();
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "buy", tradedAt: Date.UTC(2025, 0, 1),
+      quantity: 10, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 1000, tradeGrossAmountEur: 1000, cashImpactEur: -1000,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: -1000,
+      isListed: true, source: "manual",
+    }).run();
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+    return { accountId, assetId };
+  }
+
+  it("stores deleted transactions in previousJson", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = seedAccountWithTrade(db);
+    const res = await reimportAccount({ accountId }, db);
+    expect(res.ok).toBe(true);
+
+    const audit = db
+      .select()
+      .from(schema.auditEvents)
+      .all()
+      .find((e) => e.action === "reimport-wipe");
+    expect(audit).toBeDefined();
+    const payload = JSON.parse(audit!.previousJson!) as {
+      count: number;
+      transactions: Array<{ assetId: string }>;
+    };
+    expect(payload.count).toBeGreaterThan(0);
+    expect(payload.transactions[0].assetId).toBe(assetId);
+  });
+});

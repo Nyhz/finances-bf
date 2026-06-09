@@ -28,13 +28,17 @@ export function rebuildAfterTradeMutation(
   tx: Tx,
   accountId: string,
   assetIds: string | Iterable<string>,
+  /** Earliest affected trade date (ISO) — valuations before it are untouched
+   *  (audit P1). Omit to rebuild the full series. Positions and tax lots are
+   *  always fully recomputed; only the daily valuation curve is windowed. */
+  fromIso?: string,
 ): void {
   const ids =
     typeof assetIds === "string" ? [assetIds] : [...new Set(assetIds)];
   for (const id of ids) {
     recomputeAssetPosition(tx, accountId, id);
     recomputeLotsForAsset(tx, id);
-    rebuildValuationsForAsset(tx, id);
+    rebuildValuationsForAsset(tx, id, fromIso);
   }
   recomputeAccountCashBalance(tx, accountId);
 }

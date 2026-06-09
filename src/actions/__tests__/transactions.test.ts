@@ -382,3 +382,148 @@ describe("cash movement actions", () => {
     expect(row?.currentCashBalanceEur).toBe(0);
   });
 });
+
+// Audit T2/R-3 (stale-FX provenance) and R10 (real date validation).
+describe("createTransaction FX provenance and date validation", () => {
+  async function setupUsd(db: DB) {
+    const acc = await createAccount(
+      { name: "IBKR", accountType: "savings", currency: "EUR", openingBalanceNative: 10000 },
+      db,
+    );
+    if (!acc.ok) throw new Error("account setup");
+    const ast = await createAsset(
+      { name: "Acme Corp", symbol: "ACME", assetType: "stock", currency: "USD" },
+      db,
+    );
+    if (!ast.ok) throw new Error("asset setup");
+    return { accountId: acc.data.id, assetId: ast.data.id };
+  }
+  const usdBuy = (accountId: string, assetId: string) => ({
+    accountId, assetId,
+    tradeDate: "2026-02-03", side: "buy" as const,
+    quantity: 10, priceNative: 100, currency: "USD",
+  });
+
+  it("rejects impossible calendar dates and future dates at the schema", () => {
+    for (const tradeDate of ["2025-13-45", "2025-02-30", "2099-01-01"]) {
+      const parsed = createTransactionSchema.safeParse({
+        accountId: "a", assetId: "b", tradeDate,
+        side: "buy", quantity: 1, priceNative: 1, currency: "EUR",
+      });
+      expect(parsed.success, tradeDate).toBe(false);
+    }
+  });
+
+  it("rejects a non-EUR trade when no FX rate exists, writing nothing", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setupUsd(db);
+    const before = db.select().from(schema.assetTransactions).all().length;
+    const result = await createTransaction(usdBuy(accountId, assetId), db);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("validation");
+      expect(result.error.fieldErrors?.fxRateToEur?.[0]).toMatch(/FX rate/);
+    }
+    expect(db.select().from(schema.assetTransactions).all().length).toBe(before);
+  });
+
+  it("stamps fxSource=historical when the trade-date rate exists", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setupUsd(db);
+    db.insert(schema.fxRates).values({
+      id: "01TESTFXHIST00000000000000", currency: "USD", date: "2026-02-03",
+      rateToEur: 0.9, source: "yahoo-fx", createdAt: Date.now(),
+    }).run();
+    const result = await createTransaction(usdBuy(accountId, assetId), db);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.fxSource).toBe("historical");
+      expect(result.data.tradeGrossAmountEur).toBeCloseTo(900, 2);
+    }
+  });
+
+  it("falls back to the latest earlier rate and stamps fxSource=latest on trade AND cash movement", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setupUsd(db);
+    db.insert(schema.fxRates).values({
+      id: "01TESTFXSTALE0000000000000", currency: "USD", date: "2026-01-20",
+      rateToEur: 0.95, source: "yahoo-fx", createdAt: Date.now(),
+    }).run();
+    const result = await createTransaction(usdBuy(accountId, assetId), db);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.fxSource).toBe("latest");
+      const cash = db
+        .select()
+        .from(schema.accountCashMovements)
+        .where(eq(schema.accountCashMovements.externalReference, result.data.id))
+        .get();
+      expect(cash?.fxSource).toBe("latest");
+    }
+  });
+
+  it("explicit rate beats the stored rate and stamps fxSource=explicit", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setupUsd(db);
+    db.insert(schema.fxRates).values({
+      id: "01TESTFXEXPL00000000000000", currency: "USD", date: "2026-02-03",
+      rateToEur: 0.9, source: "yahoo-fx", createdAt: Date.now(),
+    }).run();
+    const result = await createTransaction(
+      { ...usdBuy(accountId, assetId), fxRateToEur: 0.88 }, db,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.fxSource).toBe("explicit");
+      expect(result.data.tradeGrossAmountEur).toBeCloseTo(880, 2);
+    }
+  });
+
+  it("EUR trades stamp fxSource=unit", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setup(db);
+    const result = await createTransaction({
+      accountId, assetId,
+      tradeDate: "2026-02-03", side: "buy",
+      quantity: 1, priceNative: 50, currency: "EUR",
+    }, db);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.fxSource).toBe("unit");
+  });
+});
+
+// Audit R7: identical same-day trades are flagged as duplicates with a
+// friendly code; explicit override records both via a salted fingerprint.
+describe("createTransaction duplicate handling", () => {
+  const trade = (accountId: string, assetId: string) => ({
+    accountId, assetId,
+    tradeDate: "2026-02-03", side: "buy" as const,
+    quantity: 5, priceNative: 100, currency: "EUR",
+  });
+
+  it("returns code=duplicate for a second identical trade", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setup(db);
+    const first = await createTransaction(trade(accountId, assetId), db);
+    expect(first.ok).toBe(true);
+    const second = await createTransaction(trade(accountId, assetId), db);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.error.code).toBe("duplicate");
+    expect(db.select().from(schema.assetTransactions).all()).toHaveLength(1);
+  });
+
+  it("records both trades with allowDuplicate=true", async () => {
+    const db = makeDb();
+    const { accountId, assetId } = await setup(db);
+    const first = await createTransaction(trade(accountId, assetId), db);
+    expect(first.ok).toBe(true);
+    const second = await createTransaction(
+      { ...trade(accountId, assetId), allowDuplicate: true }, db,
+    );
+    expect(second.ok).toBe(true);
+    const rows = db.select().from(schema.assetTransactions).all();
+    expect(rows).toHaveLength(2);
+    const fingerprints = new Set(rows.map((r) => r.rowFingerprint));
+    expect(fingerprints.size).toBe(2); // salted, no collision
+  });
+});

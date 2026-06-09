@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { toIsoDate } from "../fx";
+import { DEFAULT_TIMEOUT_MS } from "./_net";
 import type { CoinCandidate, HistoricalBar, Quote } from "./types";
 
 const BASE_URL = "https://api.coingecko.com/api/v3";
@@ -10,11 +12,13 @@ function authHeaders(): Record<string, string> {
   return base;
 }
 
-async function cgFetch<T>(path: string): Promise<T> {
+async function cgFetch<T>(path: string, schema: z.ZodType<T>): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: authHeaders(),
     // Avoid Next's fetch cache for pricing calls.
     cache: "no-store",
+    // Audit R1: hard timeout — a hung CoinGecko response must not stall a run.
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -22,8 +26,34 @@ async function cgFetch<T>(path: string): Promise<T> {
       `coingecko ${res.status} ${res.statusText} for ${path}${body ? `: ${body.slice(0, 200)}` : ""}`,
     );
   }
-  return (await res.json()) as T;
+  // Audit R5: validate the shape at the boundary — a malformed payload throws
+  // a clear provider-named error instead of a TypeError deep in a sync run.
+  const json: unknown = await res.json();
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error(`coingecko: unexpected response shape for ${path}: ${parsed.error.message.slice(0, 200)}`);
+  }
+  return parsed.data;
 }
+
+const simplePriceSchema = z.record(
+  z.string(),
+  z.object({ eur: z.number().optional(), last_updated_at: z.number().optional() }).loose(),
+);
+const marketChartSchema = z.object({
+  prices: z.array(z.tuple([z.number(), z.number()])).optional(),
+}).loose();
+const searchSchema = z.object({
+  coins: z.array(
+    z.object({
+      id: z.string(),
+      symbol: z.string().nullish(),
+      name: z.string(),
+      market_cap_rank: z.number().nullish(),
+      thumb: z.string().nullish(),
+    }).loose(),
+  ).optional(),
+}).loose();
 
 /**
  * `symbol` here is expected to be a CoinGecko coin id (e.g. "binancecoin"),
@@ -31,8 +61,9 @@ async function cgFetch<T>(path: string): Promise<T> {
  */
 export async function fetchQuote(symbol: string): Promise<Quote> {
   const id = symbol.trim().toLowerCase();
-  const data = await cgFetch<Record<string, { eur?: number; last_updated_at?: number }>>(
+  const data = await cgFetch(
     `/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=eur&include_last_updated_at=true`,
+    simplePriceSchema,
   );
   const row = data[id];
   if (!row || row.eur == null || !Number.isFinite(row.eur)) {
@@ -57,8 +88,9 @@ export async function fetchHistory(
   const id = symbol.trim().toLowerCase();
   const fromUnix = Math.floor(from.getTime() / 1000);
   const toUnix = Math.floor(to.getTime() / 1000);
-  const data = await cgFetch<{ prices?: Array<[number, number]> }>(
+  const data = await cgFetch(
     `/coins/${encodeURIComponent(id)}/market_chart/range?vs_currency=eur&from=${fromUnix}&to=${toUnix}`,
+    marketChartSchema,
   );
   const prices = data.prices ?? [];
   const byDate = new Map<string, number>();
@@ -80,15 +112,7 @@ export async function fetchHistory(
 export async function searchCoins(query: string): Promise<CoinCandidate[]> {
   const q = query.trim();
   if (!q) return [];
-  const data = await cgFetch<{
-    coins?: Array<{
-      id: string;
-      symbol: string;
-      name: string;
-      market_cap_rank?: number | null;
-      thumb?: string | null;
-    }>;
-  }>(`/search?query=${encodeURIComponent(q)}`);
+  const data = await cgFetch(`/search?query=${encodeURIComponent(q)}`, searchSchema);
   const coins = data.coins ?? [];
   return coins.map((c) => ({
     id: c.id,

@@ -55,6 +55,7 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState<PreviewPayload | null>(null);
+  const [ackErrors, setAckErrors] = React.useState(false);
   const [showErrors, setShowErrors] = React.useState(false);
   const [commitResult, setCommitResult] = React.useState<string | null>(null);
   const [cryptoPicks, setCryptoPicks] = React.useState<Record<string, string>>({});
@@ -112,6 +113,7 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
       ...(Object.keys(cryptoProviderOverrides).length > 0
         ? { cryptoProviderOverrides }
         : {}),
+      acknowledgeErrors: ackErrors,
     });
     setLoading(false);
     if (!res.ok) {
@@ -252,6 +254,21 @@ export function ImportWizard({ open, onOpenChange, accounts }: Props) {
             </Badge>
             {preview.counts.errors > 0 && (
               <Badge variant="danger">{preview.counts.errors} errors</Badge>
+            )}
+            {preview.counts.errors > 0 && (
+              <label className="flex w-full items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={ackErrors}
+                  onChange={(e) => setAckErrors(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  {preview.counts.errors} row(s) failed to parse and will be{" "}
+                  <strong>dropped</strong> from the import — they will be missing from
+                  positions and tax reports. Import anyway.
+                </span>
+              </label>
             )}
           </div>
           {preview.cryptoCandidates.length > 0 && (

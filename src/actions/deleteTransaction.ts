@@ -4,11 +4,10 @@ import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
-import { accountCashMovements, accounts, assetTransactions, auditEvents } from "../db/schema";
+import { accountCashMovements, assetTransactions, auditEvents } from "../db/schema";
 import {
   ACTOR,
   type ActionResult,
-  isCashBearingAccount,
   revalidateTradeMutation,
 } from "./_shared";
 import { rebuildAfterTradeMutation } from "../server/mutations";
@@ -44,23 +43,37 @@ export async function deleteTransaction(
         .get();
       if (!previous) throw new Error(`transaction not found: ${id}`);
 
-      const account = tx
-        .select()
-        .from(accounts)
-        .where(eq(accounts.id, previous.accountId))
-        .get();
-      const tracksCash = isCashBearingAccount(account?.accountType ?? "");
+      // Audit H2: swap legs come in linked pairs. Deleting one side alone
+      // would leave a half-permuta — assets acquired that were never paid
+      // for, and a dangling linkedTransactionId. Delete the pair as a unit.
+      const linked = previous.linkedTransactionId
+        ? tx
+            .select()
+            .from(assetTransactions)
+            .where(eq(assetTransactions.id, previous.linkedTransactionId))
+            .get()
+        : undefined;
 
-      if (tracksCash) {
+      // Cash movements reference their trade via externalReference; deleting
+      // by reference is a no-op when none exist, so no account-type gate.
+      tx
+        .delete(accountCashMovements)
+        .where(eq(accountCashMovements.externalReference, id))
+        .run();
+      tx.delete(assetTransactions).where(eq(assetTransactions.id, id)).run();
+      if (linked) {
         tx
           .delete(accountCashMovements)
-          .where(eq(accountCashMovements.externalReference, id))
+          .where(eq(accountCashMovements.externalReference, linked.id))
           .run();
+        tx.delete(assetTransactions).where(eq(assetTransactions.id, linked.id)).run();
       }
 
-      tx.delete(assetTransactions).where(eq(assetTransactions.id, id)).run();
-
-      rebuildAfterTradeMutation(tx, previous.accountId, previous.assetId);
+      // Valuations before the deleted trade's date are unaffected (audit P1).
+      const earliestAt = linked ? Math.min(previous.tradedAt, linked.tradedAt) : previous.tradedAt;
+      const fromIso = new Date(earliestAt).toISOString().slice(0, 10);
+      const assetIds = linked ? [previous.assetId, linked.assetId] : previous.assetId;
+      rebuildAfterTradeMutation(tx, previous.accountId, assetIds, fromIso);
 
       tx
         .insert(auditEvents)
@@ -74,10 +87,28 @@ export async function deleteTransaction(
           summary: null,
           previousJson: JSON.stringify(previous),
           nextJson: null,
-          contextJson: JSON.stringify({ actor: ACTOR }),
+          contextJson: JSON.stringify({ actor: ACTOR, deletedLinkedId: linked?.id ?? null }),
           createdAt: now,
         })
         .run();
+      if (linked) {
+        tx
+          .insert(auditEvents)
+          .values({
+            id: ulid(),
+            entityType: "asset_transaction",
+            entityId: linked.id,
+            action: "delete",
+            actorType: "user",
+            source: "ui",
+            summary: "deleted as the linked leg of a swap",
+            previousJson: JSON.stringify(linked),
+            nextJson: null,
+            contextJson: JSON.stringify({ actor: ACTOR, deletedWithId: id }),
+            createdAt: now,
+          })
+          .run();
+      }
 
       return { accountId: previous.accountId };
     });

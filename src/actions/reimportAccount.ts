@@ -32,6 +32,11 @@ export async function reimportAccount(
         .from(assetTransactions)
         .where(eq(assetTransactions.accountId, accountId))
         .all();
+      const cashRows = tx
+        .select()
+        .from(accountCashMovements)
+        .where(eq(accountCashMovements.accountId, accountId))
+        .all();
       const assetIds = [...new Set(txns.map((t) => t.assetId))];
       const txnIds = txns.map((t) => t.id);
 
@@ -69,7 +74,13 @@ export async function reimportAccount(
           actorType: "user",
           source: "ui",
           summary: `wiped ${txns.length} transactions`,
-          previousJson: JSON.stringify({ count: txns.length }),
+          // Audit R11: the deleted rows ride along in the audit event so a
+          // mistaken reimport is recoverable without a DB backup.
+          previousJson: JSON.stringify({
+            count: txns.length,
+            transactions: txns,
+            cashMovements: cashRows,
+          }),
           nextJson: null,
           contextJson: JSON.stringify({ actor: ACTOR }),
           createdAt: Date.now(),

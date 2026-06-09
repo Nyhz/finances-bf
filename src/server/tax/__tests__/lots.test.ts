@@ -138,3 +138,105 @@ describe("recomputeLotsForAsset", () => {
     expect(db.select().from(taxLots).all()).toHaveLength(0);
   });
 });
+
+/**
+ * Property test (audit R-5): under any random buy/sell sequence,
+ *  1. every sale's consumptions sum exactly to the sale quantity, and
+ *  2. cost is conserved — Σ(buy gross+fees) == Σ(consumed cost) + Σ(remaining
+ *     lot cost) — within the per-consumption cent-rounding tolerance.
+ * Prices only rise so no sale is at a loss: wash-sale deferrals would shift
+ * cost between lots by design and void invariant 2 (they are covered by
+ * washSale.test.ts).
+ */
+describe("recomputeLotsForAsset invariants (property)", () => {
+  // Deterministic LCG — vitest must not be flaky.
+  function makeRng(seedValue: number) {
+    let s = seedValue >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 0xffffffff;
+    };
+  }
+
+  for (const seedValue of [1, 7, 42, 1337, 99991]) {
+    it(`holds for random sequence (seed ${seedValue})`, () => {
+      const rng = makeRng(seedValue);
+      const db = makeDb();
+      const { accountId, assetId } = seed(db);
+
+      let held = 0;
+      let totalBuyCost = 0;
+      let day = 0;
+      const ops = 30 + Math.floor(rng() * 30);
+      for (let i = 0; i < ops; i++) {
+        day += 1 + Math.floor(rng() * 3);
+        const tradedAt = Date.UTC(2024, 0, 1) + day * 86_400_000;
+        // Monotonically rising price → every sale realises a gain.
+        const unitPriceEur = Math.round((10 + day * 0.5) * 100) / 100;
+        const wantSell = held > 0 && rng() < 0.4;
+        if (wantSell) {
+          const qty = Math.max(1, Math.floor(rng() * held));
+          insertTrade(db, accountId, assetId, {
+            type: "sell", qty, unitPriceEur, feesEur: 0, tradedAt,
+          });
+          held -= qty;
+        } else {
+          const qty = 1 + Math.floor(rng() * 9);
+          insertTrade(db, accountId, assetId, {
+            type: "buy", qty, unitPriceEur, feesEur: 0, tradedAt,
+          });
+          held += qty;
+          totalBuyCost += qty * unitPriceEur;
+        }
+      }
+
+      db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+
+      const lots = db.select().from(taxLots).where(eq(taxLots.assetId, assetId)).all();
+      const consumptions = db.select().from(taxLotConsumptions).all();
+      const sells = db
+        .select()
+        .from(assetTransactions)
+        .where(eq(assetTransactions.transactionType, "sell"))
+        .all();
+
+      // Invariant 1: per-sale consumed quantity == sale quantity, exactly.
+      for (const sale of sells) {
+        const consumed = consumptions
+          .filter((c) => c.saleTransactionId === sale.id)
+          .reduce((s, c) => s + c.qtyConsumed, 0);
+        expect(consumed).toBeCloseTo(sale.quantity, 9);
+      }
+
+      // Invariant 2: cost conservation. Each consumption rounds to the cent,
+      // so allow ±1 cent per consumption row.
+      const consumedCost = consumptions.reduce((s, c) => s + c.costBasisEur, 0);
+      const remainingCost = lots.reduce((s, l) => s + l.remainingQty * l.unitCostEur, 0);
+      const tolerance = 0.01 * Math.max(1, consumptions.length);
+      expect(Math.abs(consumedCost + remainingCost - totalBuyCost)).toBeLessThanOrEqual(tolerance);
+
+      // Invariant 3: remaining quantity matches the ledger position.
+      const remainingQty = lots.reduce((s, l) => s + l.remainingQty, 0);
+      expect(remainingQty).toBeCloseTo(held, 9);
+    });
+  }
+});
+
+// Audit T11: corrupt buy rows fail loudly instead of vanishing from cost basis.
+describe("recomputeLotsForAsset corrupt-row handling", () => {
+  it("throws on a non-positive buy quantity", () => {
+    const db = makeDb();
+    const { accountId, assetId } = seed(db);
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "buy", tradedAt: Date.UTC(2025, 0, 1),
+      quantity: 0, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 1000, tradeGrossAmountEur: 1000, cashImpactEur: -1000,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: -1000,
+      isListed: true, source: "manual",
+    }).run();
+    expect(() => {
+      db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+    }).toThrow(/non-positive quantity/);
+  });
+});

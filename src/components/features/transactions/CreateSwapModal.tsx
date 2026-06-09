@@ -85,8 +85,8 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
         handleOpenChange(false);
         return;
       }
-      if (result.error.code === "validation") {
-        setBanner(result.error.message);
+      if (result.error.code === "validation" && result.error.fieldErrors) {
+        setFieldErrors(result.error.fieldErrors);
       } else {
         setBanner(result.error.message);
       }

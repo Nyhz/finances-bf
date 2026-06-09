@@ -114,45 +114,48 @@ export async function backfillCryptoPrices(
       continue;
     }
 
-    const dates = bars.map((b) => b.date);
-    const existing = dates.length
-      ? await db
-          .select({
-            pricedDateUtc: priceHistory.pricedDateUtc,
+    // Audit R3/P3: existence check + inserts run inside ONE transaction —
+    // a concurrent run can no longer race past the check and abort mid-asset
+    // on the unique index, and bulk inserts are ~100x faster batched.
+    const { inserted, skipped } = db.transaction((tx) => {
+      const dates = bars.map((b) => b.date);
+      const existing = dates.length
+        ? tx
+            .select({ pricedDateUtc: priceHistory.pricedDateUtc })
+            .from(priceHistory)
+            .where(
+              and(
+                eq(priceHistory.symbol, providerSymbol),
+                eq(priceHistory.source, "coingecko"),
+                inArray(priceHistory.pricedDateUtc, dates),
+              ),
+            )
+            .all()
+        : [];
+      const haveDates = new Set(existing.map((r) => r.pricedDateUtc));
+      let ins = 0;
+      let skip = 0;
+      for (const bar of bars) {
+        if (haveDates.has(bar.date)) {
+          skip++;
+          continue;
+        }
+        tx
+          .insert(priceHistory)
+          .values({
+            id: ulid(),
+            symbol: providerSymbol,
+            price: bar.close,
+            pricedAt: new Date(`${bar.date}T00:00:00.000Z`).getTime(),
+            pricedDateUtc: bar.date,
+            source: "coingecko",
+            createdAt: Date.now(),
           })
-          .from(priceHistory)
-          .where(
-            and(
-              eq(priceHistory.symbol, providerSymbol),
-              eq(priceHistory.source, "coingecko"),
-              inArray(priceHistory.pricedDateUtc, dates),
-            ),
-          )
-          .all()
-      : [];
-    const haveDates = new Set(existing.map((r) => r.pricedDateUtc));
-
-    let inserted = 0;
-    let skipped = 0;
-    for (const bar of bars) {
-      if (haveDates.has(bar.date)) {
-        skipped++;
-        continue;
+          .run();
+        ins++;
       }
-      await db
-        .insert(priceHistory)
-        .values({
-          id: ulid(),
-          symbol: providerSymbol,
-          price: bar.close,
-          pricedAt: new Date(`${bar.date}T00:00:00.000Z`).getTime(),
-          pricedDateUtc: bar.date,
-          source: "coingecko",
-          createdAt: Date.now(),
-        })
-        .run();
-      inserted++;
-    }
+      return { inserted: ins, skipped: skip };
+    });
 
     summary.assets.push({
       assetId: asset.id,
@@ -204,98 +207,104 @@ export async function backfillCryptoValuations(
     const providerSymbol = asset.providerSymbol?.trim();
     if (!providerSymbol) continue;
 
-    const priceRows = await db
-      .select({
-        date: priceHistory.pricedDateUtc,
-        price: priceHistory.price,
-      })
-      .from(priceHistory)
-      .where(
-        and(
-          eq(priceHistory.symbol, providerSymbol),
-          eq(priceHistory.source, "coingecko"),
-        ),
-      )
-      .orderBy(asc(priceHistory.pricedDateUtc))
-      .all();
-    if (priceRows.length === 0) continue;
+    // Audit R3/P3: the whole per-asset rebuild is DB-local — run it in one
+    // transaction so a failure can't leave a half-updated valuation curve.
+    const result = db.transaction((tx) => {
+      const priceRows = tx
+        .select({
+          date: priceHistory.pricedDateUtc,
+          price: priceHistory.price,
+        })
+        .from(priceHistory)
+        .where(
+          and(
+            eq(priceHistory.symbol, providerSymbol),
+            eq(priceHistory.source, "coingecko"),
+          ),
+        )
+        .orderBy(asc(priceHistory.pricedDateUtc))
+        .all();
+      if (priceRows.length === 0) return null;
 
-    const txRows = await db
-      .select({
-        tradedAt: assetTransactions.tradedAt,
-        transactionType: assetTransactions.transactionType,
-        quantity: assetTransactions.quantity,
-      })
-      .from(assetTransactions)
-      .where(eq(assetTransactions.assetId, asset.id))
-      .orderBy(asc(assetTransactions.tradedAt))
-      .all();
+      const txRows = tx
+        .select({
+          tradedAt: assetTransactions.tradedAt,
+          transactionType: assetTransactions.transactionType,
+          quantity: assetTransactions.quantity,
+        })
+        .from(assetTransactions)
+        .where(eq(assetTransactions.assetId, asset.id))
+        .orderBy(asc(assetTransactions.tradedAt))
+        .all();
 
-    const existingRows = await db
-      .select({
-        id: assetValuations.id,
-        valuationDate: assetValuations.valuationDate,
-      })
-      .from(assetValuations)
-      .where(eq(assetValuations.assetId, asset.id))
-      .all();
-    const existingByDate = new Map(
-      existingRows.map((r) => [r.valuationDate, r.id]),
-    );
+      const existingRows = tx
+        .select({
+          id: assetValuations.id,
+          valuationDate: assetValuations.valuationDate,
+        })
+        .from(assetValuations)
+        .where(eq(assetValuations.assetId, asset.id))
+        .all();
+      const existingByDate = new Map(
+        existingRows.map((r) => [r.valuationDate, r.id]),
+      );
 
-    let runningQty = 0;
-    let cursor = 0;
-    let inserted = 0;
-    let updated = 0;
+      let runningQty = 0;
+      let cursor = 0;
+      let inserted = 0;
+      let updated = 0;
 
-    for (const bar of priceRows) {
-      const cutoff = new Date(`${bar.date}T23:59:59.999Z`).getTime();
-      while (cursor < txRows.length && txRows[cursor].tradedAt <= cutoff) {
-        const t = txRows[cursor];
-        const sign = t.transactionType === "buy" ? 1 : -1;
-        runningQty += sign * t.quantity;
-        cursor++;
+      for (const bar of priceRows) {
+        const cutoff = new Date(`${bar.date}T23:59:59.999Z`).getTime();
+        while (cursor < txRows.length && txRows[cursor].tradedAt <= cutoff) {
+          const t = txRows[cursor];
+          const sign = t.transactionType === "buy" ? 1 : -1;
+          runningQty += sign * t.quantity;
+          cursor++;
+        }
+        const quantity = Math.max(0, runningQty);
+        const unitPriceEur = Math.round(bar.price * 1e6) / 1e6;
+        const marketValueEur = Math.round(quantity * unitPriceEur * 100) / 100;
+        const existingId = existingByDate.get(bar.date);
+        if (existingId) {
+          tx
+            .update(assetValuations)
+            .set({
+              quantity,
+              unitPriceEur,
+              marketValueEur,
+              priceSource: "coingecko",
+            })
+            .where(eq(assetValuations.id, existingId))
+            .run();
+          updated++;
+        } else {
+          tx
+            .insert(assetValuations)
+            .values({
+              id: ulid(),
+              assetId: asset.id,
+              valuationDate: bar.date,
+              quantity,
+              unitPriceEur,
+              marketValueEur,
+              priceSource: "coingecko",
+              createdAt: Date.now(),
+            })
+            .run();
+          inserted++;
+        }
       }
-      const quantity = Math.max(0, runningQty);
-      const unitPriceEur = Math.round(bar.price * 1e6) / 1e6;
-      const marketValueEur = Math.round(quantity * unitPriceEur * 100) / 100;
-      const existingId = existingByDate.get(bar.date);
-      if (existingId) {
-        await db
-          .update(assetValuations)
-          .set({
-            quantity,
-            unitPriceEur,
-            marketValueEur,
-            priceSource: "coingecko",
-          })
-          .where(eq(assetValuations.id, existingId))
-          .run();
-        updated++;
-      } else {
-        await db
-          .insert(assetValuations)
-          .values({
-            id: ulid(),
-            assetId: asset.id,
-            valuationDate: bar.date,
-            quantity,
-            unitPriceEur,
-            marketValueEur,
-            priceSource: "coingecko",
-            createdAt: Date.now(),
-          })
-          .run();
-        inserted++;
-      }
-    }
+      return { inserted, updated, days: priceRows.length };
+    });
+    if (!result) continue;
 
     summary.assets.push({
       assetId: asset.id,
       providerSymbol,
-      inserted,
-      updated,
-      days: priceRows.length,
+      inserted: result.inserted,
+      updated: result.updated,
+      days: result.days,
     });
   }
 

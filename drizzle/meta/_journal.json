@@ -19,14 +19,14 @@
     {
       "idx": 2,
       "version": "6",
-      "when": 1808784000000,
+      "when": 1776464200000,
       "tag": "0002_cash_bearing_account_types",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "6",
-      "when": 1808784060000,
+      "when": 1776464260000,
       "tag": "0003_prune_account_types",
       "breakpoints": true
     },
@@ -49,6 +49,20 @@
       "version": "6",
       "when": 1776627381424,
       "tag": "0006_tax_index_polish",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1781030344040,
+      "tag": "0007_rainy_ego",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781031279367,
+      "tag": "0008_eminent_nehzno",
       "breakpoints": true
     }
   ]

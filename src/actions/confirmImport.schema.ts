@@ -13,6 +13,9 @@ export const confirmImportSchema = z.object({
    * new crypto asset is auto-created for that hint.
    */
   cryptoProviderOverrides: z.record(z.string(), z.string().min(1).max(64)).optional(),
+  /** Audit R8: required acknowledgement when the CSV contains rows that
+   *  failed to parse and will be dropped from the import. */
+  acknowledgeErrors: z.boolean().default(false),
 });
 
 export type ConfirmImportInput = z.input<typeof confirmImportSchema>;

@@ -23,6 +23,12 @@ export function DriftBanner({ drift }: { drift: DriftReport }) {
             {formatEur(drift.withholdingOrigenTotalEurDelta)}
           </SensitiveValue>
         </li>
+        {drift.contentChanged ? (
+          <li className="font-medium">
+            Composition changed — the set of sales/dividends differs from the sealed
+            snapshot even if totals match.
+          </li>
+        ) : null}
         <li>Sales count Δ: {drift.salesCountDelta}</li>
         <li>Dividends count Δ: {drift.dividendsCountDelta}</li>
       </ul>

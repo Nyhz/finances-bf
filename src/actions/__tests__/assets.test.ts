@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
@@ -18,6 +18,8 @@ import { updateAssetSchema } from "../updateAsset.schema";
 import { deactivateAsset } from "../deactivateAsset";
 import { setManualPrice } from "../setManualPrice";
 import { setManualPriceSchema } from "../setManualPrice.schema";
+import { createAccount } from "../accounts";
+import { createTransaction } from "../createTransaction";
 
 function makeDb(): DB {
   const sqlite = new Database(":memory:");
@@ -163,31 +165,46 @@ describe("setManualPrice", () => {
     expect(result.data.pricedDateUtc).toBe("2026-01-15");
   });
 
-  it("updates existing asset_valuations row for the date", async () => {
-    await db
-      .insert(schema.assetValuations)
-      .values({
-        id: "val_1",
+  it("rebuilds the valuation series so the manual price reaches asset_valuations", async () => {
+    // Audit M5: a manual price must create/refresh the valuation rows for a
+    // held asset even when no valuation existed for that date yet.
+    const acc = await createAccount(
+      { name: "Broker", accountType: "savings", currency: "EUR", openingBalanceNative: 1000 },
+      db,
+    );
+    if (!acc.ok) throw new Error("account setup");
+    const bought = await createTransaction(
+      {
+        accountId: acc.data.id,
         assetId,
-        valuationDate: "2026-01-15",
+        tradeDate: "2026-01-12",
+        side: "buy",
         quantity: 10,
-        unitPriceEur: 1,
-        marketValueEur: 10,
-        priceSource: "seed",
-      })
-      .run();
+        priceNative: 1,
+        currency: "EUR",
+      },
+      db,
+    );
+    if (!bought.ok) throw new Error(`buy setup: ${bought.error.message}`);
+
     const result = await setManualPrice(
       { assetId, priceNative: 5, priceDate: "2026-01-15" },
       db,
     );
     expect(result.ok).toBe(true);
+
     const v = await db
       .select()
       .from(schema.assetValuations)
-      .where(eq(schema.assetValuations.id, "val_1"))
+      .where(
+        and(
+          eq(schema.assetValuations.assetId, assetId),
+          eq(schema.assetValuations.valuationDate, "2026-01-15"),
+        ),
+      )
       .get();
+    expect(v?.quantity).toBe(10);
     expect(v?.unitPriceEur).toBe(5);
     expect(v?.marketValueEur).toBe(50);
-    expect(v?.priceSource).toBe("manual");
   });
 });

@@ -4,8 +4,10 @@ import * as React from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { createCashMovement } from "@/src/actions/createCashMovement";
+import { previewFx, type FxPreview } from "@/src/actions/previewFx";
 
 const MANUAL_CASH_MOVEMENT_KINDS = ["deposit", "withdrawal", "interest"] as const;
+const CASH_CURRENCIES = ["EUR", "USD", "GBP", "CHF"] as const;
 type ManualCashMovementKind = (typeof MANUAL_CASH_MOVEMENT_KINDS)[number];
 
 export type CashAccountOption = {
@@ -68,6 +70,10 @@ export function CreateCashMovementModal({
     Record<string, string[]>
   >({});
   const [banner, setBanner] = React.useState<string | null>(null);
+  const [duplicateWarning, setDuplicateWarning] = React.useState(false);
+  const [fxDeviationWarning, setFxDeviationWarning] = React.useState(false);
+  const [fxPreview, setFxPreview] = React.useState<FxPreview | null>(null);
+  const acceptedRef = React.useRef({ duplicate: false, fxDeviation: false });
   const [pending, startTransition] = React.useTransition();
 
   function handleOpenChange(next: boolean) {
@@ -75,12 +81,17 @@ export function CreateCashMovementModal({
       setForm(initial);
       setFieldErrors({});
       setBanner(null);
+      setDuplicateWarning(false);
+      setFxDeviationWarning(false);
+      acceptedRef.current = { duplicate: false, fxDeviation: false };
     }
     onOpenChange(next);
   }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    // Inputs that change which FX rate applies invalidate the live preview.
+    if (key === "currency" || key === "occurredAt") setFxPreview(null);
   }
 
   function onAccountChange(id: string) {
@@ -90,12 +101,38 @@ export function CreateCashMovementModal({
       accountId: id,
       currency: next?.currency ?? prev.currency,
     }));
+    setFxPreview(null);
   }
+
+  const selectedAccount = accounts.find((a) => a.id === form.accountId);
+  const currencyOptions = Array.from(
+    new Set([selectedAccount?.currency ?? "EUR", ...CASH_CURRENCIES]),
+  );
+
+  // Audit H3: preview the rate that will be applied before submitting.
+  React.useEffect(() => {
+    if (!open || form.currency === "EUR" || !/^\d{4}-\d{2}-\d{2}$/.test(form.occurredAt)) {
+      return;
+    }
+    let cancelled = false;
+    previewFx({ currency: form.currency, date: form.occurredAt }).then((res) => {
+      if (!cancelled) setFxPreview(res.ok ? res.data : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.currency, form.occurredAt]);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    submit();
+  }
+
+  function submit(extra?: { allowDuplicate?: boolean; allowFxDeviation?: boolean }) {
     setBanner(null);
     setFieldErrors({});
+    if (extra?.allowDuplicate) acceptedRef.current.duplicate = true;
+    if (extra?.allowFxDeviation) acceptedRef.current.fxDeviation = true;
 
     const fxRate = form.fxRateToEur.trim();
     const payload = {
@@ -106,6 +143,8 @@ export function CreateCashMovementModal({
       currency: form.currency.toUpperCase(),
       fxRateToEur: fxRate ? Number(fxRate) : undefined,
       description: form.description.trim() ? form.description : undefined,
+      allowDuplicate: acceptedRef.current.duplicate,
+      allowFxDeviation: acceptedRef.current.fxDeviation,
     };
 
     startTransition(async () => {
@@ -114,6 +153,19 @@ export function CreateCashMovementModal({
         handleOpenChange(false);
         return;
       }
+      if (result.error.code === "duplicate") {
+        setDuplicateWarning(true);
+        setBanner(result.error.message);
+        return;
+      }
+      if (result.error.code === "fx_deviation") {
+        setFxDeviationWarning(true);
+        setBanner(result.error.message);
+        if (result.error.fieldErrors) setFieldErrors(result.error.fieldErrors);
+        return;
+      }
+      setDuplicateWarning(false);
+      setFxDeviationWarning(false);
       if (result.error.code === "validation" && result.error.fieldErrors) {
         setFieldErrors(result.error.fieldErrors);
       } else {
@@ -201,32 +253,50 @@ export function CreateCashMovementModal({
             />
           </Field>
           <Field label="Currency" errors={fieldErrors.currency}>
-            <input
-              type="text"
+            <select
               value={form.currency}
-              onChange={(e) => update("currency", e.target.value.toUpperCase())}
+              onChange={(e) => update("currency", e.target.value)}
               className={inputClass}
-              maxLength={3}
               required
-            />
+            >
+              {currencyOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                  {c === selectedAccount?.currency ? " (account currency)" : ""}
+                </option>
+              ))}
+            </select>
           </Field>
         </div>
 
-        <Field
-          label="FX rate to EUR (optional)"
-          errors={fieldErrors.fxRateToEur}
-        >
-          <input
-            type="number"
-            inputMode="decimal"
-            step="any"
-            min="0"
-            value={form.fxRateToEur}
-            onChange={(e) => update("fxRateToEur", e.target.value)}
-            className={inputClass}
-            placeholder="Leave blank to use the stored rate"
-          />
-        </Field>
+        {form.currency !== "EUR" && (
+          <Field
+            label={`FX rate — 1 ${form.currency} = ? EUR (optional)`}
+            errors={fieldErrors.fxRateToEur}
+          >
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min="0"
+              value={form.fxRateToEur}
+              onChange={(e) => update("fxRateToEur", e.target.value)}
+              className={inputClass}
+              placeholder={
+                fxPreview
+                  ? `Leave blank to use ${fxPreview.rate.toFixed(6)}`
+                  : "Leave blank to use the stored rate"
+              }
+            />
+            {fxPreview && (
+              <span className="text-xs text-muted-foreground">
+                Stored rate: 1 {form.currency} = {fxPreview.rate.toFixed(6)} EUR
+                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""}
+                {fxPreview.stale ? " — stale" : ""}
+              </span>
+            )}
+          </Field>
+        )}
 
         <Field label="Description" errors={fieldErrors.description}>
           <textarea
@@ -246,6 +316,26 @@ export function CreateCashMovementModal({
           >
             Cancel
           </Button>
+          {duplicateWarning ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => submit({ allowDuplicate: true })}
+            >
+              Save anyway
+            </Button>
+          ) : null}
+          {fxDeviationWarning ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => submit({ allowFxDeviation: true })}
+            >
+              Use my rate anyway
+            </Button>
+          ) : null}
           <Button type="submit" disabled={pending || !form.accountId}>
             {pending ? "Saving…" : "Create movement"}
           </Button>

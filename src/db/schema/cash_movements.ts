@@ -15,6 +15,8 @@ export const accountCashMovements = sqliteTable(
     nativeAmount: real("native_amount").notNull(),
     currency: text("currency").notNull(),
     fxRateToEur: real("fx_rate_to_eur").notNull(),
+    // Provenance of fxRateToEur — see asset_transactions.fxSource.
+    fxSource: text("fx_source"),
     cashImpactEur: real("cash_impact_eur").notNull(),
     externalReference: text("external_reference"),
     rowFingerprint: text("row_fingerprint"),

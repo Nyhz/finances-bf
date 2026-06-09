@@ -127,3 +127,169 @@ describe("buildTaxReport dust filter", () => {
     expect(DUST_THRESHOLD_EUR).toBe(1);
   });
 });
+
+// Audit T10/T5: year-end custody comes from per-account transaction sums
+// (not residual FIFO lots), and stale valuations are flagged.
+describe("buildTaxReport year-end balances", () => {
+  it("attributes year-end quantities to the holding account even when global FIFO drained another account's lots", () => {
+    const db = makeDb();
+    const assetId = ulid();
+    const accountA = ulid(); // buys first (older lots)
+    const accountB = ulid(); // buys later, then sells
+
+    for (const [id, name, country] of [[accountA, "Broker A", "NL"], [accountB, "Broker B", "DE"]] as const) {
+      db.insert(accounts).values({
+        id, name, currency: "EUR", accountType: "broker", countryCode: country,
+        openingBalanceEur: 0, currentCashBalanceEur: 0,
+      }).run();
+    }
+    db.insert(assets).values({
+      id: assetId, name: "VWCE", assetType: "equity",
+      currency: "EUR", isActive: true, assetClassTax: "etf",
+    }).run();
+
+    const mk = (accountId: string, type: "buy" | "sell", qty: number, month: number) => {
+      const gross = qty * 100;
+      db.insert(assetTransactions).values({
+        id: ulid(), accountId, assetId,
+        transactionType: type, tradedAt: Date.UTC(2025, month, 1),
+        quantity: qty, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+        tradeGrossAmount: gross, tradeGrossAmountEur: gross,
+        cashImpactEur: type === "buy" ? -gross : gross,
+        feesAmount: 0, feesAmountEur: 0, netAmountEur: type === "buy" ? -gross : gross,
+        isListed: true, source: "manual",
+      }).run();
+    };
+    mk(accountA, "buy", 10, 0);  // Jan: A buys 10 (oldest lots)
+    mk(accountB, "buy", 10, 1);  // Feb: B buys 10
+    mk(accountB, "sell", 10, 5); // Jun: B sells 10 — FIFO consumes A's lots
+
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+    const report = buildTaxReport(db, 2025);
+
+    // Custody truth: A still holds 10, B holds 0 — regardless of which lots
+    // FIFO consumed.
+    const balances = report.yearEndBalances;
+    expect(balances).toHaveLength(1);
+    expect(balances[0].accountId).toBe(accountA);
+    expect(balances[0].quantity).toBeCloseTo(10, 9);
+  });
+
+  it("flags valuations older than the staleness window and exposes the valuation date", () => {
+    const db = makeDb();
+    const accountId = ulid(); const assetId = ulid();
+    db.insert(accounts).values({
+      id: accountId, name: "DEGIRO", currency: "EUR", accountType: "broker",
+      countryCode: "NL", openingBalanceEur: 0, currentCashBalanceEur: 0,
+    }).run();
+    db.insert(assets).values({
+      id: assetId, name: "VWCE", assetType: "equity",
+      currency: "EUR", isActive: true, assetClassTax: "etf",
+    }).run();
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "buy", tradedAt: Date.UTC(2025, 0, 10),
+      quantity: 10, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 1000, tradeGrossAmountEur: 1000, cashImpactEur: -1000,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: -1000,
+      isListed: true, source: "manual",
+    }).run();
+    // Valuation from October — more than 10 days before Dec 31.
+    db.insert(schema.assetValuations).values({
+      id: ulid(), assetId, valuationDate: "2025-10-01",
+      quantity: 10, unitPriceEur: 120, marketValueEur: 1200,
+      priceSource: "test", createdAt: Date.now(),
+    }).run();
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+
+    const report = buildTaxReport(db, 2025);
+    expect(report.yearEndBalances).toHaveLength(1);
+    const b = report.yearEndBalances[0];
+    expect(b.valueEur).toBeCloseTo(1200, 2);
+    expect(b.unvalued).toBe(false);
+    expect(b.staleValuation).toBe(true);
+    expect(b.valuationDate).toBe("2025-10-01");
+
+    // A fresh valuation clears the flag.
+    db.insert(schema.assetValuations).values({
+      id: ulid(), assetId, valuationDate: "2025-12-30",
+      quantity: 10, unitPriceEur: 130, marketValueEur: 1300,
+      priceSource: "test", createdAt: Date.now(),
+    }).run();
+    const fresh = buildTaxReport(db, 2025);
+    expect(fresh.yearEndBalances[0].staleValuation).toBe(false);
+    expect(fresh.yearEndBalances[0].valueEur).toBeCloseTo(1300, 2);
+  });
+});
+
+// Audit T7/R-9: dust-filtered disposals are disclosed, never silently dropped.
+describe("buildTaxReport dust disclosure", () => {
+  it("reports excluded count and amounts", () => {
+    const db = makeDb();
+    const accountId = ulid(); const assetId = ulid();
+    db.insert(accounts).values({ id: accountId, name: "BINANCE", currency: "EUR", accountType: "crypto_exchange", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
+    db.insert(assets).values({ id: assetId, name: "BNB", assetType: "crypto", currency: "BNB", isActive: true, assetClassTax: "crypto" }).run();
+
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "buy", tradedAt: Date.UTC(2025, 0, 1),
+      quantity: 0.001, unitPrice: 500, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 0.5, tradeGrossAmountEur: 0.5, cashImpactEur: -0.5,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: -0.5,
+      isListed: false, source: "manual",
+    }).run();
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "sell", tradedAt: Date.UTC(2025, 5, 1),
+      quantity: 0.001, unitPrice: 600, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 0.6, tradeGrossAmountEur: 0.6, cashImpactEur: 0.6,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: 0.6,
+      isListed: false, source: "manual",
+    }).run();
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+
+    const report = buildTaxReport(db, 2025);
+    expect(report.sales).toHaveLength(0);
+    expect(report.excludedSales?.count).toBe(1);
+    expect(report.excludedSales?.proceedsEur).toBeCloseTo(0.6, 2);
+    expect(report.excludedSales?.costBasisEur).toBeCloseTo(0.5, 2);
+  });
+});
+
+// Audit T9/R-8: totals are rounded at the aggregation boundary — no float
+// artifacts may survive into exports.
+describe("buildTaxReport totals precision", () => {
+  it("sums of many 0.1-style amounts come out cent-exact", () => {
+    const db = makeDb();
+    const accountId = ulid(); const assetId = ulid();
+    db.insert(accounts).values({ id: accountId, name: "B", currency: "EUR", accountType: "broker", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
+    db.insert(assets).values({ id: assetId, name: "X", assetType: "equity", currency: "EUR", isActive: true, assetClassTax: "listed_security" }).run();
+
+    // 100 buys of 0.1 € gain each: classic 0.1+0.2 float-drift territory.
+    for (let i = 0; i < 100; i++) {
+      db.insert(assetTransactions).values({
+        id: ulid(), accountId, assetId,
+        transactionType: "buy", tradedAt: Date.UTC(2025, 0, 2) + i * 2 * 86_400_000,
+        quantity: 1, unitPrice: 10.1, tradeCurrency: "EUR", fxRateToEur: 1,
+        tradeGrossAmount: 10.1, tradeGrossAmountEur: 10.1, cashImpactEur: -10.1,
+        feesAmount: 0, feesAmountEur: 0, netAmountEur: -10.1,
+        isListed: true, source: "manual",
+      }).run();
+      db.insert(assetTransactions).values({
+        id: ulid(), accountId, assetId,
+        transactionType: "sell", tradedAt: Date.UTC(2025, 0, 3) + i * 2 * 86_400_000,
+        quantity: 1, unitPrice: 10.2, tradeCurrency: "EUR", fxRateToEur: 1,
+        tradeGrossAmount: 10.2, tradeGrossAmountEur: 10.2, cashImpactEur: 10.2,
+        feesAmount: 0, feesAmountEur: 0, netAmountEur: 10.2,
+        isListed: true, source: "manual",
+      }).run();
+    }
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+
+    const report = buildTaxReport(db, 2025);
+    for (const [k, v] of Object.entries(report.totals)) {
+      expect(Math.round(v * 100) / 100, `totals.${k}`).toBe(v);
+    }
+    expect(report.totals.realizedGainsEur).toBe(10);
+  });
+});

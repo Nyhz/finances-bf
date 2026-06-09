@@ -189,6 +189,8 @@ describe("getTaxYears", () => {
     expect(years).toEqual([]);
   });
 
+  // Audit P5: years are now the contiguous min→max span (gap years render an
+  // empty report) — computed from aggregates instead of loading every row.
   it("collects years from both trades and cash movements, sorted descending", async () => {
     const db = makeDb();
     db.insert(schema.accounts)
@@ -211,7 +213,7 @@ describe("getTaxYears", () => {
       })
       .run();
     const years = await getTaxYears(db);
-    expect(years).toEqual([2026, 2024]);
+    expect(years).toEqual([2026, 2025, 2024]);
   });
 });
 

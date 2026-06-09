@@ -3,13 +3,16 @@
 import * as React from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { createDividend } from "@/src/actions/createDividend";
+import { previewFx, type FxPreview } from "@/src/actions/previewFx";
+import { formatEur } from "@/src/lib/format";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: { id: string; name: string }[];
-  assets: { id: string; name: string }[];
+  assets: { id: string; name: string; currency: string }[];
 };
 
 type FormState = {
@@ -25,6 +28,10 @@ type FormState = {
   notes: string;
 };
 
+// Currencies dividends are realistically paid in. The selected asset's quote
+// currency is always offered (and preselected) on top of these.
+const DIVIDEND_CURRENCIES = ["EUR", "USD", "GBP", "CHF"] as const;
+
 function todayIso(): string {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
@@ -39,7 +46,9 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
       assetId: assets[0]?.id ?? "",
       tradeDate: todayIso(),
       grossNative: "",
-      currency: "EUR",
+      // The payout currency is almost always the asset's quote currency —
+      // default to it instead of EUR (audit H4).
+      currency: assets[0]?.currency ?? "EUR",
       fxRateToEur: "",
       withholdingOrigenNative: "",
       withholdingDestinoEur: "",
@@ -52,6 +61,10 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
   const [form, setForm] = React.useState<FormState>(initial);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string[]>>({});
   const [banner, setBanner] = React.useState<string | null>(null);
+  const [fxDeviationWarning, setFxDeviationWarning] = React.useState(false);
+  const [fxPreview, setFxPreview] = React.useState<FxPreview | null>(null);
+  const [fxUnavailable, setFxUnavailable] = React.useState(false);
+  const acceptedFxRef = React.useRef(false);
   const [pending, startTransition] = React.useTransition();
 
   function handleOpenChange(next: boolean) {
@@ -59,20 +72,78 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
       setForm(initial);
       setFieldErrors({});
       setBanner(null);
+      setFxDeviationWarning(false);
+      acceptedFxRef.current = false;
     }
     onOpenChange(next);
   }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    // Inputs that change which FX rate applies invalidate the live preview.
+    if (key === "currency" || key === "tradeDate") {
+      setFxPreview(null);
+      setFxUnavailable(false);
+    }
   }
 
+  function onAssetChange(id: string) {
+    const asset = assets.find((a) => a.id === id);
+    setForm((prev) => ({
+      ...prev,
+      assetId: id,
+      currency: asset?.currency ?? prev.currency,
+    }));
+    setFxPreview(null);
+    setFxUnavailable(false);
+  }
+
+  const selectedAsset = assets.find((a) => a.id === form.assetId);
+  const currencyOptions = Array.from(
+    new Set([selectedAsset?.currency ?? "EUR", ...DIVIDEND_CURRENCIES]),
+  );
   const needsFx = form.currency !== "EUR";
+
+  // Audit H3: preview the rate that will be applied before submitting.
+  React.useEffect(() => {
+    if (!open || !needsFx || !/^\d{4}-\d{2}-\d{2}$/.test(form.tradeDate)) {
+      return;
+    }
+    let cancelled = false;
+    previewFx({ currency: form.currency, date: form.tradeDate }).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setFxPreview(res.data);
+        setFxUnavailable(false);
+      } else {
+        setFxPreview(null);
+        setFxUnavailable(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, needsFx, form.currency, form.tradeDate]);
+
+  const manualRate = form.fxRateToEur.trim() ? Number(form.fxRateToEur) : undefined;
+  const effectiveRate = needsFx ? (manualRate ?? fxPreview?.rate) : 1;
+  const grossNum = Number(form.grossNative);
+  const whtOrigenNum = Number(form.withholdingOrigenNative || 0);
+  const whtDestinoNum = Number(form.withholdingDestinoEur || 0);
+  const estimatedNetEur =
+    effectiveRate != null && Number.isFinite(effectiveRate) && effectiveRate > 0 && grossNum > 0
+      ? (grossNum - whtOrigenNum) * effectiveRate - whtDestinoNum
+      : null;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    submit();
+  }
+
+  function submit(extra?: { allowFxDeviation?: boolean }) {
     setBanner(null);
     setFieldErrors({});
+    if (extra?.allowFxDeviation) acceptedFxRef.current = true;
 
     const fxRate = form.fxRateToEur.trim();
     const sourceCountry = form.sourceCountry.trim().toUpperCase();
@@ -91,6 +162,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
         : 0,
       sourceCountry: sourceCountry.length === 2 ? sourceCountry : undefined,
       notes: form.notes.trim() || undefined,
+      allowFxDeviation: acceptedFxRef.current,
     };
 
     startTransition(async () => {
@@ -99,7 +171,21 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
         handleOpenChange(false);
         return;
       }
-      setBanner(result.error.message);
+      if (result.error.code === "fx_deviation") {
+        setFxDeviationWarning(true);
+        setBanner(result.error.message);
+        if (result.error.fieldErrors) setFieldErrors(result.error.fieldErrors);
+        return;
+      }
+      setFxDeviationWarning(false);
+      if (
+        (result.error.code === "validation" || result.error.code === "not_found") &&
+        result.error.fieldErrors
+      ) {
+        setFieldErrors(result.error.fieldErrors);
+      } else {
+        setBanner(result.error.message);
+      }
     });
   }
 
@@ -139,7 +225,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
         <Field label="Asset" errors={fieldErrors.assetId}>
           <select
             value={form.assetId}
-            onChange={(e) => update("assetId", e.target.value)}
+            onChange={(e) => onAssetChange(e.target.value)}
             className={inputClass}
             required
           >
@@ -163,7 +249,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Gross amount (native)" errors={fieldErrors.grossNative}>
+          <Field label={`Gross amount (${form.currency})`} errors={fieldErrors.grossNative}>
             <input
               type="number"
               inputMode="decimal"
@@ -177,19 +263,30 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           </Field>
 
           <Field label="Currency" errors={fieldErrors.currency}>
-            <input
-              type="text"
+            <select
               value={form.currency}
-              onChange={(e) => update("currency", e.target.value.toUpperCase())}
+              onChange={(e) => update("currency", e.target.value)}
               className={inputClass}
-              maxLength={3}
               required
-            />
+            >
+              {currencyOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                  {c === selectedAsset?.currency ? " (asset currency)" : ""}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">
+              The currency the payout arrived in — usually the asset&apos;s own.
+            </span>
           </Field>
         </div>
 
         {needsFx && (
-          <Field label="FX rate to EUR" errors={fieldErrors.fxRateToEur}>
+          <Field
+            label={`FX rate — 1 ${form.currency} = ? EUR (optional)`}
+            errors={fieldErrors.fxRateToEur}
+          >
             <input
               type="number"
               inputMode="decimal"
@@ -198,14 +295,34 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
               value={form.fxRateToEur}
               onChange={(e) => update("fxRateToEur", e.target.value)}
               className={inputClass}
-              placeholder="Leave blank to use the stored rate"
+              placeholder={
+                fxPreview
+                  ? `Leave blank to use ${fxPreview.rate.toFixed(6)}`
+                  : "Leave blank to use the stored rate"
+              }
             />
+            {fxPreview && (
+              <span className="text-xs text-muted-foreground">
+                Stored rate: 1 {form.currency} = {fxPreview.rate.toFixed(6)} EUR
+                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""}
+                {fxPreview.stale
+                  ? " — stale: no rate for this date, most recent earlier rate shown"
+                  : ""}
+              </span>
+            )}
+            {fxUnavailable && (
+              <span className="text-xs text-destructive">
+                No stored rate for this currency/date — enter how many EUR one{" "}
+                {form.currency} is worth (e.g. 0.92, never the EUR→{form.currency}{" "}
+                direction).
+              </span>
+            )}
           </Field>
         )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field
-            label="Withholding origen (native)"
+            label={`Withholding origen (${form.currency})`}
             errors={fieldErrors.withholdingOrigenNative}
           >
             <input
@@ -237,6 +354,16 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           </Field>
         </div>
 
+        {estimatedNetEur != null && (
+          <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">
+              Estimated net received
+              {manualRate != null ? " (your rate)" : fxPreview?.stale ? " (stale rate)" : ""}
+            </span>
+            <SensitiveValue>{formatEur(estimatedNetEur)}</SensitiveValue>
+          </div>
+        )}
+
         <Field label="Source country (optional, ISO-2)" errors={fieldErrors.sourceCountry}>
           <input
             type="text"
@@ -266,6 +393,16 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           >
             Cancel
           </Button>
+          {fxDeviationWarning ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => submit({ allowFxDeviation: true })}
+            >
+              Use my rate anyway
+            </Button>
+          ) : null}
           <Button
             type="submit"
             disabled={

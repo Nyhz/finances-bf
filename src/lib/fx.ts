@@ -5,6 +5,8 @@ export type FxRateResult = {
   source: FxSource;
   /** True when the rate had to fall back to the most recent known rate instead of the requested date. */
   stale?: boolean;
+  /** ISO date of the stored rate that was used ("historical"/"latest" only). */
+  rateDate?: string;
 };
 
 export type FxRateRow = {
@@ -12,6 +14,19 @@ export type FxRateRow = {
   date: string; // ISO yyyy-MM-dd
   rateToEur: number;
 };
+
+/** Thrown when no rate exists at all for the currency on or before the date.
+ *  Actions catch this specifically to return a friendly validation error. */
+export class FxUnavailableError extends Error {
+  readonly currency: string;
+  readonly isoDate: string;
+  constructor(currency: string, isoDate: string) {
+    super(`no FX rate available for ${currency} on ${isoDate}`);
+    this.name = "FxUnavailableError";
+    this.currency = currency;
+    this.isoDate = isoDate;
+  }
+}
 
 /**
  * Caller provides the lookup. This keeps `fx.ts` decoupled from a live Drizzle db —
@@ -24,6 +39,13 @@ export type FxLookup = {
   findLatest: (currency: string, onOrBefore?: string) => Promise<FxRateRow | null>;
 };
 
+/** Synchronous twin of FxLookup — better-sqlite3 server actions resolve inside
+ *  a transaction where awaiting is not possible. */
+export type FxLookupSync = {
+  findOnDate: (currency: string, isoDate: string) => FxRateRow | null;
+  findLatest: (currency: string, onOrBefore?: string) => FxRateRow | null;
+};
+
 export type ResolveFxOptions = {
   /** Explicit override (e.g. snapshotted on the originating transaction) — wins over lookup. */
   explicitRate?: number | null;
@@ -34,6 +56,36 @@ import { toIsoDate } from "./time";
 // should import from `./time` directly.
 export { toIsoDate };
 
+/** Precedence steps that need no lookup: EUR is 1:1; an explicit rate wins. */
+function resolvePreLookup(ccy: string, options: ResolveFxOptions): FxRateResult | null {
+  if (ccy === "EUR") {
+    return { rate: 1, source: "unit" };
+  }
+  if (options.explicitRate != null && Number.isFinite(options.explicitRate)) {
+    if (options.explicitRate <= 0) {
+      throw new Error(`resolveFxRate: explicit rate must be positive (got ${options.explicitRate})`);
+    }
+    return { rate: options.explicitRate, source: "explicit" };
+  }
+  return null;
+}
+
+/** Precedence steps after the lookups ran: exact date, then stale-latest, then error. */
+function resolvePostLookup(
+  ccy: string,
+  iso: string,
+  onDate: FxRateRow | null,
+  latest: FxRateRow | null,
+): FxRateResult {
+  if (onDate) {
+    return { rate: onDate.rateToEur, source: "historical", rateDate: onDate.date };
+  }
+  if (latest) {
+    return { rate: latest.rateToEur, source: "latest", stale: true, rateDate: latest.date };
+  }
+  throw new FxUnavailableError(ccy, iso);
+}
+
 export async function resolveFxRate(
   currency: string,
   date: Date | string,
@@ -41,27 +93,25 @@ export async function resolveFxRate(
   options: ResolveFxOptions = {},
 ): Promise<FxRateResult> {
   const ccy = currency.toUpperCase();
-  if (ccy === "EUR") {
-    return { rate: 1, source: "unit" };
-  }
-
-  if (options.explicitRate != null && Number.isFinite(options.explicitRate)) {
-    if (options.explicitRate <= 0) {
-      throw new Error(`resolveFxRate: explicit rate must be positive (got ${options.explicitRate})`);
-    }
-    return { rate: options.explicitRate, source: "explicit" };
-  }
-
+  const pre = resolvePreLookup(ccy, options);
+  if (pre) return pre;
   const iso = toIsoDate(date);
   const onDate = await lookup.findOnDate(ccy, iso);
-  if (onDate) {
-    return { rate: onDate.rateToEur, source: "historical" };
-  }
+  const latest = onDate ? null : await lookup.findLatest(ccy, iso);
+  return resolvePostLookup(ccy, iso, onDate, latest);
+}
 
-  const latest = await lookup.findLatest(ccy, iso);
-  if (latest) {
-    return { rate: latest.rateToEur, source: "latest", stale: true };
-  }
-
-  throw new Error(`resolveFxRate: no FX rate available for ${ccy} on ${iso}`);
+export function resolveFxRateSync(
+  currency: string,
+  date: Date | string,
+  lookup: FxLookupSync,
+  options: ResolveFxOptions = {},
+): FxRateResult {
+  const ccy = currency.toUpperCase();
+  const pre = resolvePreLookup(ccy, options);
+  if (pre) return pre;
+  const iso = toIsoDate(date);
+  const onDate = lookup.findOnDate(ccy, iso);
+  const latest = onDate ? null : lookup.findLatest(ccy, iso);
+  return resolvePostLookup(ccy, iso, onDate, latest);
 }

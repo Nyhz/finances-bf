@@ -6,6 +6,7 @@ import { fxRates } from "../db/schema";
 import { round } from "./money";
 import { isWeekday, toIsoDate } from "./time";
 import { fetchHistory as cgFetchHistory } from "./pricing/coingecko";
+import { withTimeout } from "./pricing/_net";
 
 const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
@@ -48,11 +49,15 @@ async function fetchFromYahoo(
   const pair = `EUR${ccy}=X`;
   const from = new Date(`${fromIso}T00:00:00Z`);
   const to = new Date(`${toIso}T23:59:59Z`);
-  const chart = (await yahoo.chart(pair, {
-    period1: from,
-    period2: to,
-    interval: "1d",
-  })) as { quotes?: Array<{ date: Date; close: number | null }> };
+  const chart = (await withTimeout(
+    yahoo.chart(pair, {
+      period1: from,
+      period2: to,
+      interval: "1d",
+    }),
+    undefined,
+    `yahoo fx chart ${pair}`,
+  )) as { quotes?: Array<{ date: Date; close: number | null }> };
   const bars: FxBar[] = [];
   for (const q of chart.quotes ?? []) {
     if (q.close == null || !Number.isFinite(q.close) || q.close <= 0) continue;

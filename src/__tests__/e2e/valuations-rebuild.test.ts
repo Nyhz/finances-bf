@@ -227,3 +227,64 @@ describe("e2e — rebuildValuationsForAsset", () => {
     expect(projection(second)).toEqual(projection(first));
   });
 });
+
+// Audit P1: the windowed (incremental) rebuild must produce exactly the same
+// rows as a full rebuild for the same ledger.
+describe("incremental valuation rebuild equivalence", () => {
+  it("rebuild from a mid-series date equals a full rebuild", () => {
+    const db = makeDb();
+    const accountId = ulid();
+    const assetId = ulid();
+    db.insert(schema.accounts).values({
+      id: accountId, name: "B", currency: "EUR", accountType: "broker",
+      openingBalanceEur: 0, currentCashBalanceEur: 0,
+    }).run();
+    db.insert(schema.assets).values({
+      id: assetId, name: "VWCE", assetType: "equity", symbol: "VWCE",
+      currency: "EUR", isActive: true, assetClassTax: "etf",
+    }).run();
+
+    const mk = (type: "buy" | "sell", qty: number, iso: string) => {
+      const gross = qty * 100;
+      db.insert(schema.assetTransactions).values({
+        id: ulid(), accountId, assetId,
+        transactionType: type, tradedAt: new Date(`${iso}T12:00:00Z`).getTime(),
+        quantity: qty, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+        tradeGrossAmount: gross, tradeGrossAmountEur: gross,
+        cashImpactEur: type === "buy" ? -gross : gross,
+        feesAmount: 0, feesAmountEur: 0, netAmountEur: type === "buy" ? -gross : gross,
+        isListed: true, source: "manual",
+      }).run();
+    };
+    mk("buy", 10, "2026-01-05");
+    mk("buy", 5, "2026-02-10");
+    mk("sell", 8, "2026-03-12");
+    seedPriceHistory(db, "VWCE", "2026-01-02", "2026-06-01", (i) => 100 + i);
+
+    const snapshot = () =>
+      db
+        .select({
+          valuationDate: schema.assetValuations.valuationDate,
+          quantity: schema.assetValuations.quantity,
+          unitPriceEur: schema.assetValuations.unitPriceEur,
+          marketValueEur: schema.assetValuations.marketValueEur,
+        })
+        .from(schema.assetValuations)
+        .all()
+        .sort((a, b) => a.valuationDate.localeCompare(b.valuationDate));
+
+    // Full rebuild = reference.
+    db.transaction((tx) => { rebuildValuationsForAsset(tx as unknown as DB, assetId); });
+    const full = snapshot();
+    expect(full.length).toBeGreaterThan(50);
+
+    // Corrupt the tail, then rebuild incrementally from the March trade date.
+    db.transaction((tx) => { rebuildValuationsForAsset(tx as unknown as DB, assetId, "2026-03-12"); });
+    const incremental = snapshot();
+    expect(incremental).toStrictEqual(full);
+
+    // Incremental from a date before the first trade is also identical.
+    db.transaction((tx) => { rebuildValuationsForAsset(tx as unknown as DB, assetId, "2025-12-01"); });
+    expect(snapshot()).toStrictEqual(full);
+  });
+});

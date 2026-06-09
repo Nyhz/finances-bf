@@ -20,6 +20,13 @@ export const assetTransactions = sqliteTable(
     unitPrice: real("unit_price").notNull(),
     tradeCurrency: text("trade_currency").notNull(),
     fxRateToEur: real("fx_rate_to_eur").notNull(),
+    // "market-fx" when the EUR value of this trade came from a market daily
+    // close (crypto permuta legs) rather than user/broker input. Null = user data.
+    valuationBasis: text("valuation_basis"),
+    // Provenance of fxRateToEur: unit | explicit | historical | latest.
+    // "latest" means a stale fallback rate — surfaced in the UI. Nullable for
+    // rows that predate the column.
+    fxSource: text("fx_source"),
     tradeGrossAmount: real("trade_gross_amount").notNull(),
     tradeGrossAmountEur: real("trade_gross_amount_eur").notNull(),
     cashImpactEur: real("cash_impact_eur").notNull(),

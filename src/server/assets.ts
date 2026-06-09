@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, max, or } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import {
   assetPositions,
@@ -27,35 +27,68 @@ export async function listAssetsWithFreshness(
   const positions = await db.select().from(assetPositions).all();
   const posByAsset = new Map(positions.map((p) => [p.assetId, p]));
   const now = Date.now();
-  return Promise.all(
-    rows.map(async (asset) => {
-      const pos = posByAsset.get(asset.id);
-      let freshness: PriceFreshness = null;
-      if (pos?.manualPrice != null && pos.manualPriceAsOf != null) {
-        freshness = { pricedAt: pos.manualPriceAsOf, source: "manual" };
-      } else {
-        const symbol = asset.providerSymbol ?? asset.symbol ?? asset.ticker;
-        if (symbol) {
-          const last = await db
-            .select({
-              pricedAt: priceHistory.pricedAt,
-              source: priceHistory.source,
-            })
-            .from(priceHistory)
-            .where(eq(priceHistory.symbol, symbol))
-            .orderBy(desc(priceHistory.pricedAt))
-            .limit(1)
-            .get();
-          if (last) {
-            const source =
-              now - last.pricedAt > STALE_MS ? "stale" : last.source;
-            freshness = { pricedAt: last.pricedAt, source };
-          }
+
+  // Latest price per symbol in two queries (audit P2) instead of one per asset.
+  const symbols = [
+    ...new Set(
+      rows
+        .map((a) => a.providerSymbol ?? a.symbol ?? a.ticker)
+        .filter((sym): sym is string => !!sym),
+    ),
+  ];
+  const latestBySymbol = new Map<string, { pricedAt: number; source: string }>();
+  if (symbols.length > 0) {
+    const latest = await db
+      .select({ symbol: priceHistory.symbol, latestAt: max(priceHistory.pricedAt) })
+      .from(priceHistory)
+      .where(inArray(priceHistory.symbol, symbols))
+      .groupBy(priceHistory.symbol)
+      .all();
+    const pairs = latest.filter(
+      (r): r is { symbol: string; latestAt: number } => r.latestAt != null,
+    );
+    if (pairs.length > 0) {
+      const lastRows = await db
+        .select({
+          symbol: priceHistory.symbol,
+          pricedAt: priceHistory.pricedAt,
+          source: priceHistory.source,
+        })
+        .from(priceHistory)
+        .where(
+          or(
+            ...pairs.map((pair) =>
+              and(
+                eq(priceHistory.symbol, pair.symbol),
+                eq(priceHistory.pricedAt, pair.latestAt),
+              ),
+            ),
+          ),
+        )
+        .all();
+      for (const r of lastRows) {
+        if (!latestBySymbol.has(r.symbol)) {
+          latestBySymbol.set(r.symbol, { pricedAt: r.pricedAt, source: r.source });
         }
       }
-      return { ...asset, freshness };
-    }),
-  );
+    }
+  }
+
+  return rows.map((asset) => {
+    const pos = posByAsset.get(asset.id);
+    let freshness: PriceFreshness = null;
+    if (pos?.manualPrice != null && pos.manualPriceAsOf != null) {
+      freshness = { pricedAt: pos.manualPriceAsOf, source: "manual" };
+    } else {
+      const symbol = asset.providerSymbol ?? asset.symbol ?? asset.ticker;
+      const last = symbol ? latestBySymbol.get(symbol) : undefined;
+      if (last) {
+        const source = now - last.pricedAt > STALE_MS ? "stale" : last.source;
+        freshness = { pricedAt: last.pricedAt, source };
+      }
+    }
+    return { ...asset, freshness };
+  });
 }
 
 export async function listAssets(db: DB = defaultDb): Promise<Asset[]> {

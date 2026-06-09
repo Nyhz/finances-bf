@@ -64,3 +64,63 @@ describe("sealYear / unsealYear", () => {
     expect(db.select().from(taxYearSnapshots).where(eq(taxYearSnapshots.year, 2025)).all()).toHaveLength(0);
   });
 });
+
+// Audit T4: sealing freezes M720/M721 values — unvalued foreign balances
+// must block the seal unless explicitly acknowledged.
+describe("sealYear unvalued-balance gate", () => {
+  function seedForeignBuy(db: DB, withValuation: boolean) {
+    const accountId = ulid(); const assetId = ulid();
+    db.insert(accounts).values({
+      id: accountId, name: "DEGIRO", currency: "EUR",
+      accountType: "broker", countryCode: "NL",
+      openingBalanceEur: 0, currentCashBalanceEur: 0,
+    }).run();
+    db.insert(assets).values({
+      id: assetId, name: "VWCE", assetType: "equity",
+      currency: "EUR", isActive: true, assetClassTax: "etf",
+    }).run();
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "buy", tradedAt: Date.UTC(2025, 0, 1),
+      quantity: 10, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 1000, tradeGrossAmountEur: 1000, cashImpactEur: -1000,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: -1000,
+      isListed: true, source: "manual",
+    }).run();
+    if (withValuation) {
+      db.insert(schema.assetValuations).values({
+        id: ulid(), assetId, valuationDate: "2025-12-31",
+        quantity: 10, unitPriceEur: 110, marketValueEur: 1100,
+        priceSource: "test", createdAt: Date.now(),
+      }).run();
+    }
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+  }
+
+  it("refuses to seal when a foreign block has unvalued positions", async () => {
+    const db = makeDb();
+    seedForeignBuy(db, false);
+    const res = await sealYear({ year: 2025 }, db);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("conflict");
+      expect(res.error.message).toMatch(/unvalued/);
+    }
+    expect(db.select().from(taxYearSnapshots).all()).toHaveLength(0);
+  });
+
+  it("seals with explicit acknowledgement", async () => {
+    const db = makeDb();
+    seedForeignBuy(db, false);
+    const res = await sealYear({ year: 2025, acknowledgeUnvalued: true }, db);
+    expect(res.ok).toBe(true);
+    expect(db.select().from(taxYearSnapshots).all()).toHaveLength(1);
+  });
+
+  it("seals normally when everything is valued", async () => {
+    const db = makeDb();
+    seedForeignBuy(db, true);
+    const res = await sealYear({ year: 2025 }, db);
+    expect(res.ok).toBe(true);
+  });
+});

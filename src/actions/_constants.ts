@@ -1,7 +1,7 @@
 export const ACTOR = "commander";
 
 export type ActionError = {
-  code: "validation" | "db" | "not_found" | "conflict";
+  code: "validation" | "db" | "not_found" | "conflict" | "duplicate" | "fx_deviation";
   message: string;
   fieldErrors?: Record<string, string[]>;
 };

@@ -1,34 +1,42 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
+import { roundEur } from "../../lib/money";
+import { txEur, type TxEur } from "../../lib/money-types";
 import type { DB } from "../../db/client";
 import {
-  accounts,
   assetTransactions,
   assets,
-  assetValuations,
   taxLotConsumptions,
   taxLots,
   taxWashSaleAdjustments,
 } from "../../db/schema";
+import { buildYearEndBalances, type YearEndBalance } from "./yearEnd";
+
+// Re-exported so existing consumers keep importing from "./report".
+export { YEAR_END_VALUATION_STALE_DAYS } from "./yearEnd";
+export type { YearEndBalance } from "./yearEnd";
 
 export type ConsumedLotSummary = {
   lotId: string;
   acquiredAt: number;
   qtyConsumed: number;
-  costBasisEur: number;
+  costBasisEur: TxEur;
 };
 
 export type SaleReportRow = {
   transactionId: string;
+  /** "market-fx" when the EUR legs were valued from a market daily close
+   *  (Binance crypto-crypto permuta) rather than user/broker-entered data. */
+  valuationBasis: string | null;
   tradedAt: number;
   accountId: string;
   assetId: string;
   quantity: number;
-  proceedsEur: number;
-  feesEur: number;
-  costBasisEur: number;
-  rawGainLossEur: number;
-  nonComputableLossEur: number;
-  computableGainLossEur: number;
+  proceedsEur: TxEur;
+  feesEur: TxEur;
+  costBasisEur: TxEur;
+  rawGainLossEur: TxEur;
+  nonComputableLossEur: TxEur;
+  computableGainLossEur: TxEur;
   consumedLots: ConsumedLotSummary[];
   assetName: string | null;
   isin: string | null;
@@ -44,41 +52,32 @@ export type DividendReportRow = {
   isin: string | null;
   sourceCountry: string | null;
   grossNative: number;
-  grossEur: number;
-  withholdingOrigenEur: number;
-  withholdingDestinoEur: number;
-  netEur: number;
+  grossEur: TxEur;
+  withholdingOrigenEur: TxEur;
+  withholdingDestinoEur: TxEur;
+  netEur: TxEur;
 };
 
-export type YearEndBalance = {
-  accountId: string;
-  accountName: string | null;
-  accountCountry: string | null;
-  accountType: string;
-  assetId: string;
-  assetName: string | null;
-  isin: string | null;
-  assetClassTax: string | null;
-  quantity: number;
-  valueEur: number;
-};
 
 export type TaxReport = {
   year: number;
   sales: SaleReportRow[];
   dividends: DividendReportRow[];
   yearEndBalances: YearEndBalance[];
+  /** Disposals dropped by the dust filter (audit T7) — disclosed, never silent.
+   *  Optional: snapshots sealed before this field existed lack it. */
+  excludedSales?: { count: number; proceedsEur: TxEur; costBasisEur: TxEur };
   totals: {
-    realizedGainsEur: number;
-    realizedLossesComputableEur: number;
-    nonComputableLossesEur: number;
-    netComputableEur: number;
-    proceedsEur: number;
-    costBasisEur: number;
-    feesEur: number;
-    dividendsGrossEur: number;
-    withholdingOrigenTotalEur: number;
-    withholdingDestinoTotalEur: number;
+    realizedGainsEur: TxEur;
+    realizedLossesComputableEur: TxEur;
+    nonComputableLossesEur: TxEur;
+    netComputableEur: TxEur;
+    proceedsEur: TxEur;
+    costBasisEur: TxEur;
+    feesEur: TxEur;
+    dividendsGrossEur: TxEur;
+    withholdingOrigenTotalEur: TxEur;
+    withholdingDestinoTotalEur: TxEur;
   };
 };
 
@@ -112,52 +111,84 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     .orderBy(asc(assetTransactions.tradedAt))
     .all();
 
+  const assetIdSet = [...new Set(
+    db
+      .select({ assetId: assetTransactions.assetId })
+      .from(assetTransactions)
+      .where(and(gte(assetTransactions.tradedAt, start), lt(assetTransactions.tradedAt, end)))
+      .all()
+      .map((r) => r.assetId),
+  )];
+  const assetById = new Map(
+    (assetIdSet.length
+      ? db.select().from(assets).where(inArray(assets.id, assetIdSet)).all()
+      : []
+    ).map((a) => [a.id, a]),
+  );
+
   const sales: SaleReportRow[] = [];
 
+  // Audit P2: one query per table for the whole year instead of 3-4 queries
+  // per sale row.
+  const sellIds = sellRows.map((r) => r.id);
+  const allConsumptions = sellIds.length
+    ? db.select().from(taxLotConsumptions).where(inArray(taxLotConsumptions.saleTransactionId, sellIds)).all()
+    : [];
+  const consumptionsBySale = new Map<string, typeof allConsumptions>();
+  for (const c of allConsumptions) {
+    const list = consumptionsBySale.get(c.saleTransactionId) ?? [];
+    list.push(c);
+    consumptionsBySale.set(c.saleTransactionId, list);
+  }
+  const allLotIds = [...new Set(allConsumptions.map((c) => c.lotId))];
+  const lotById = new Map(
+    (allLotIds.length
+      ? db.select().from(taxLots).where(inArray(taxLots.id, allLotIds)).all()
+      : []
+    ).map((l) => [l.id, l]),
+  );
+  const allAdjustments = sellIds.length
+    ? db.select().from(taxWashSaleAdjustments).where(inArray(taxWashSaleAdjustments.saleTransactionId, sellIds)).all()
+    : [];
+  const adjustmentsBySale = new Map<string, number>();
+  for (const a of allAdjustments) {
+    adjustmentsBySale.set(
+      a.saleTransactionId,
+      (adjustmentsBySale.get(a.saleTransactionId) ?? 0) + a.disallowedLossEur,
+    );
+  }
+
   for (const row of sellRows) {
-    const consumptions = db
-      .select()
-      .from(taxLotConsumptions)
-      .where(eq(taxLotConsumptions.saleTransactionId, row.id))
-      .all();
-
-    const lotIds = consumptions.map((c) => c.lotId);
-    const lotRows = lotIds.length
-      ? db.select().from(taxLots).where(inArray(taxLots.id, lotIds)).all()
-      : [];
-    const lotById = new Map(lotRows.map((l) => [l.id, l]));
-
+    const consumptions = consumptionsBySale.get(row.id) ?? [];
     const costBasisEur = consumptions.reduce((s, c) => s + c.costBasisEur, 0);
     const rawGainLoss = row.tradeGrossAmountEur - costBasisEur - row.feesAmountEur;
 
-    const adjustments = db
-      .select()
-      .from(taxWashSaleAdjustments)
-      .where(eq(taxWashSaleAdjustments.saleTransactionId, row.id))
-      .all();
-    const nonComputable = adjustments.reduce((s, a) => s + a.disallowedLossEur, 0);
+    const nonComputable = adjustmentsBySale.get(row.id) ?? 0;
     // Disallowed loss reduces the magnitude of the loss (raw −200, disallowed 60 → computable −140).
     const computable = rawGainLoss < 0 ? rawGainLoss + nonComputable : rawGainLoss;
 
-    const asset = db.select().from(assets).where(eq(assets.id, row.assetId)).get();
+    const asset = assetById.get(row.assetId);
 
     sales.push({
       transactionId: row.id,
+      valuationBasis: row.valuationBasis ?? null,
       tradedAt: row.tradedAt,
       accountId: row.accountId,
       assetId: row.assetId,
       quantity: row.quantity,
-      proceedsEur: row.tradeGrossAmountEur,
-      feesEur: row.feesAmountEur,
-      costBasisEur,
-      rawGainLossEur: rawGainLoss,
-      nonComputableLossEur: nonComputable,
-      computableGainLossEur: computable,
+      // txEur(): these come straight off the transaction row / lot
+      // consumptions — the user-data side of the provenance wall.
+      proceedsEur: txEur(row.tradeGrossAmountEur),
+      feesEur: txEur(row.feesAmountEur),
+      costBasisEur: txEur(costBasisEur),
+      rawGainLossEur: txEur(rawGainLoss),
+      nonComputableLossEur: txEur(nonComputable),
+      computableGainLossEur: txEur(computable),
       consumedLots: consumptions.map((c) => ({
         lotId: c.lotId,
         acquiredAt: lotById.get(c.lotId)?.acquiredAt ?? 0,
         qtyConsumed: c.qtyConsumed,
-        costBasisEur: c.costBasisEur,
+        costBasisEur: txEur(c.costBasisEur),
       })),
       assetName: asset?.name ?? null,
       isin: asset?.isin ?? null,
@@ -165,16 +196,23 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     });
   }
 
+  const excluded = { count: 0, proceedsEur: 0, costBasisEur: 0 };
   const visibleSales = sales
     .filter((s) => {
       // Import artifact: no EUR proceeds means this is a fee-disposal synthesised
       // by the Binance parser, not a real sale. Always exclude regardless of size.
-      if (s.proceedsEur === 0) return false;
-      // Dust: both sides tiny.
-      if (
-        Math.abs(s.proceedsEur) < DUST_THRESHOLD_EUR &&
-        Math.abs(s.costBasisEur) < DUST_THRESHOLD_EUR
-      ) return false;
+      // Dust: both sides tiny. Either way the exclusion is DISCLOSED via
+      // excludedSales (audit T7), never silent.
+      const drop =
+        s.proceedsEur === 0 ||
+        (Math.abs(s.proceedsEur) < DUST_THRESHOLD_EUR &&
+          Math.abs(s.costBasisEur) < DUST_THRESHOLD_EUR);
+      if (drop) {
+        excluded.count += 1;
+        excluded.proceedsEur = roundEur(excluded.proceedsEur + s.proceedsEur);
+        excluded.costBasisEur = roundEur(excluded.costBasisEur + s.costBasisEur);
+        return false;
+      }
       return true;
     })
     .sort((a, b) => a.tradedAt - b.tradedAt);
@@ -193,7 +231,7 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     .all();
 
   const dividends: DividendReportRow[] = dividendRows.map((row) => {
-    const asset = db.select().from(assets).where(eq(assets.id, row.assetId)).get();
+    const asset = assetById.get(row.assetId);
     return {
       transactionId: row.id,
       tradedAt: row.tradedAt,
@@ -203,10 +241,10 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
       isin: asset?.isin ?? null,
       sourceCountry: row.sourceCountry,
       grossNative: row.dividendGross ?? row.tradeGrossAmount,
-      grossEur: row.tradeGrossAmountEur,
-      withholdingOrigenEur: row.withholdingTax ?? 0,
-      withholdingDestinoEur: row.withholdingTaxDestination ?? 0,
-      netEur: row.cashImpactEur,
+      grossEur: txEur(row.tradeGrossAmountEur),
+      withholdingOrigenEur: txEur(row.withholdingTax ?? 0),
+      withholdingDestinoEur: txEur(row.withholdingTaxDestination ?? 0),
+      netEur: txEur(row.cashImpactEur),
     };
   });
 
@@ -234,59 +272,31 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     withholdingDestinoTotalEur += d.withholdingDestinoEur;
   }
 
-  const yearEndIso = new Date(end - 86_400_000).toISOString().slice(0, 10);
-  const allLotRows = db.select().from(taxLots).all();
-  const byKey = new Map<string, { accountId: string; assetId: string; qty: number }>();
-  for (const lot of allLotRows) {
-    if (lot.remainingQty <= 1e-9) continue;
-    if (lot.acquiredAt >= end) continue; // lot acquired after year-end
-    const key = `${lot.accountId}::${lot.assetId}`;
-    const cur = byKey.get(key) ?? { accountId: lot.accountId, assetId: lot.assetId, qty: 0 };
-    cur.qty += lot.remainingQty;
-    byKey.set(key, cur);
-  }
-  const yearEndBalances: YearEndBalance[] = [];
-  for (const entry of byKey.values()) {
-    const account = db.select().from(accounts).where(eq(accounts.id, entry.accountId)).get();
-    const asset = db.select().from(assets).where(eq(assets.id, entry.assetId)).get();
-    const valuation = db
-      .select()
-      .from(assetValuations)
-      .where(and(eq(assetValuations.assetId, entry.assetId), lte(assetValuations.valuationDate, yearEndIso)))
-      .orderBy(desc(assetValuations.valuationDate))
-      .limit(1)
-      .get();
-    const valueEur = valuation ? entry.qty * valuation.unitPriceEur : 0;
-    yearEndBalances.push({
-      accountId: entry.accountId,
-      accountName: account?.name ?? null,
-      accountCountry: account?.countryCode ?? null,
-      accountType: account?.accountType ?? "unknown",
-      assetId: entry.assetId,
-      assetName: asset?.name ?? null,
-      isin: asset?.isin ?? null,
-      assetClassTax: asset?.assetClassTax ?? null,
-      quantity: entry.qty,
-      valueEur,
-    });
-  }
+  const yearEndBalances: YearEndBalance[] = buildYearEndBalances(db, end);
 
   return {
     year,
     sales: visibleSales,
     dividends,
     yearEndBalances,
+    excludedSales: {
+      count: excluded.count,
+      proceedsEur: txEur(excluded.proceedsEur),
+      costBasisEur: txEur(excluded.costBasisEur),
+    },
+    // Totals are float accumulations of cent-rounded terms — round once at
+    // the aggregation boundary (audit T9) so exports never see 1234.5600000001.
     totals: {
-      realizedGainsEur,
-      realizedLossesComputableEur,
-      nonComputableLossesEur,
-      netComputableEur: realizedGainsEur + realizedLossesComputableEur,
-      proceedsEur,
-      costBasisEur,
-      feesEur,
-      dividendsGrossEur,
-      withholdingOrigenTotalEur,
-      withholdingDestinoTotalEur,
+      realizedGainsEur: txEur(roundEur(realizedGainsEur)),
+      realizedLossesComputableEur: txEur(roundEur(realizedLossesComputableEur)),
+      nonComputableLossesEur: txEur(roundEur(nonComputableLossesEur)),
+      netComputableEur: txEur(roundEur(realizedGainsEur + realizedLossesComputableEur)),
+      proceedsEur: txEur(roundEur(proceedsEur)),
+      costBasisEur: txEur(roundEur(costBasisEur)),
+      feesEur: txEur(roundEur(feesEur)),
+      dividendsGrossEur: txEur(roundEur(dividendsGrossEur)),
+      withholdingOrigenTotalEur: txEur(roundEur(withholdingOrigenTotalEur)),
+      withholdingDestinoTotalEur: txEur(roundEur(withholdingDestinoTotalEur)),
     },
   };
 }

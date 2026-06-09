@@ -1,3 +1,4 @@
+import { marketEur } from "../../../lib/money-types";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -21,9 +22,9 @@ describe("computeInformationalModelsStatus", () => {
   it("flags a new 720 block when foreign securities cross €50k for the first time", () => {
     const db = makeDb();
     const blocks: Model720Block[] = [
-      { country: "IE", type: "broker-securities", valueEur: 60_000 },
-      { country: "ES", type: "broker-securities", valueEur: 10_000 },
-      { country: "NL", type: "crypto", valueEur: 30_000 },
+      { country: "IE", type: "broker-securities", valueEur: marketEur(60_000), hasUnvalued: false, hasStale: false },
+      { country: "ES", type: "broker-securities", valueEur: marketEur(10_000), hasUnvalued: false, hasStale: false },
+      { country: "NL", type: "crypto", valueEur: marketEur(30_000), hasUnvalued: false, hasStale: false },
     ];
     const res = computeInformationalModelsStatus(db, 2025, blocks);
     const ie = res.m720.blocks.find((b) => b.country === "IE");
@@ -40,12 +41,12 @@ describe("computeInformationalModelsStatus", () => {
       id: ulid(), year: 2024,
       sealedAt: Date.UTC(2025, 0, 1),
       payloadJson: JSON.stringify({
-        m720: { blocks: [{ country: "IE", type: "broker-securities", valueEur: 60_000, status: "new" }] },
+        m720: { blocks: [{ country: "IE", type: "broker-securities", valueEur: marketEur(60_000), hasUnvalued: false, hasStale: false, status: "new" }] },
       }),
     }).run();
 
     const blocks: Model720Block[] = [
-      { country: "IE", type: "broker-securities", valueEur: 85_000 },
+      { country: "IE", type: "broker-securities", valueEur: marketEur(85_000), hasUnvalued: false, hasStale: false },
     ];
     const res = computeInformationalModelsStatus(db, 2025, blocks);
     const ie = res.m720.blocks.find((b) => b.country === "IE");
@@ -59,7 +60,7 @@ describe("computeInformationalModelsStatus", () => {
       id: ulid(), year: 2024,
       sealedAt: Date.UTC(2025, 0, 1),
       payloadJson: JSON.stringify({
-        m720: { blocks: [{ country: "IE", type: "broker-securities", valueEur: 60_000, status: "new" }] },
+        m720: { blocks: [{ country: "IE", type: "broker-securities", valueEur: marketEur(60_000), hasUnvalued: false, hasStale: false, status: "new" }] },
       }),
     }).run();
 

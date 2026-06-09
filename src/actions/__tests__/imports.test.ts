@@ -11,6 +11,23 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+// No network in tests: confirmImport prefetches FX for every non-EUR row
+// (incl. dividends since audit fix T3), so resolveFxRange must be stubbed.
+vi.mock("../../lib/fx-backfill", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/fx-backfill")>(
+    "../../lib/fx-backfill",
+  );
+  return { ...actual, resolveFxRange: resolveFxRangeStub };
+});
+import { clearFx, mkFxBars, resolveFxRangeStub, setFx } from "../../__tests__/e2e/_helpers";
+
+beforeEach(() => {
+  clearFx();
+  // The DEGIRO statement fixtures carry USD rows; register a synthetic USD
+  // curve so the (stubbed) FX prefetch succeeds.
+  setFx("USD", mkFxBars("2026-03-01", "2026-12-31", 0.87));
+});
+
 import { createAccount } from "../accounts";
 import { previewImport } from "../previewImport";
 import { confirmImport } from "../confirmImport";
@@ -237,5 +254,147 @@ describe("confirmImport — cryptoProviderOverrides", () => {
       .get();
     expect(bnb?.providerSymbol).toBe("binancecoin");
     expect(bnb?.assetType).toBe("crypto");
+  });
+});
+
+// Audit T3: the FX prefetch plan must cover dividend/cash rows, not only
+// trades. This CSV has NO FX-conversion rows (so no fxRateToEurOverride) and
+// no trades — the dividend's EUR value must come from the prefetched
+// fx_rates, or the whole import must abort.
+const STATEMENT_DIV_NO_FX_CSV = `Date,Time,Value date,Product,ISIN,Description,FX,Change,,Balance,,Order Id
+18-03-2026,07:03,17-03-2026,UNITEDHEALTH GROUP INC,US91324P1021,Dividendo,,USD,"6,63",USD,"5,64",
+18-03-2026,07:02,17-03-2026,UNITEDHEALTH GROUP INC,US91324P1021,Retención del dividendo,,USD,"-0,99",USD,"-0,99",
+`;
+
+describe("confirmImport — FX plan covers dividend-only batches (T3)", () => {
+  let db: DB;
+  let accountId: string;
+
+  beforeEach(async () => {
+    db = makeDb();
+    const acc = await createAccount(
+      { name: "DeGiro Broker", accountType: "broker", currency: "EUR", openingBalanceNative: 0 },
+      db,
+    );
+    if (!acc.ok) throw new Error("account setup");
+    accountId = acc.data.id;
+  });
+
+  it("fetches USD rates for a dividend-only import and stamps fxSource", async () => {
+    const res = await confirmImport(
+      { source: "degiro", accountId, csvText: STATEMENT_DIV_NO_FX_CSV },
+      db,
+    );
+    if (!res.ok) throw new Error(`confirm failed: ${res.error.message}`);
+    expect(res.data.insertedDividends).toBe(1);
+
+    const div = db.select().from(schema.assetTransactions).all()[0];
+    expect(div.fxRateToEur).toBeCloseTo(0.87, 6); // from the stubbed USD curve
+    expect(div.fxSource).toBe("historical");
+    expect(div.tradeGrossAmountEur).toBeCloseTo(6.63 * 0.87, 2);
+  });
+
+  it("aborts the whole import when FX for a dividend currency cannot be fetched", async () => {
+    clearFx(); // stub now throws for USD
+    const res = await confirmImport(
+      { source: "degiro", accountId, csvText: STATEMENT_DIV_NO_FX_CSV },
+      db,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.message).toMatch(/FX fetch failed/);
+    expect(db.select().from(schema.assetTransactions).all()).toHaveLength(0);
+    expect(db.select().from(schema.fxRates).all()).toHaveLength(0);
+  });
+});
+
+// Audit T6/R-11: crypto-crypto permuta legs persist valuationBasis=market-fx;
+// fiat-quoted trades stay null (user data).
+const BINANCE_PERMUTA_CSV = `"Date(UTC)","Pair","Side","Price","Executed","Amount","Fee"
+"2026-02-28 09:00:00","BTCEUR","BUY","55000","0.02BTC","1100EUR","0.00001BNB"
+"2026-03-01 10:00:00","ETHBTC","BUY","0.05","0.2ETH","0.01BTC","0.0001BNB"
+"2026-03-02 10:00:00","BNBEUR","BUY","650","0.1BNB","65EUR","0.00001BNB"
+`;
+
+describe("confirmImport — permuta valuation basis (T6)", () => {
+  it("marks both legs of a crypto-quoted trade and leaves fiat trades unmarked", async () => {
+    const db = makeDb();
+    setFx("BTC", mkFxBars("2026-02-25", "2026-12-31", 60_000, { weekdaysOnly: false }), "coingecko-fx");
+    const accountId = await setupAccount(db, 1000);
+    const res = await confirmImport(
+      { source: "binance", accountId, csvText: BINANCE_PERMUTA_CSV },
+      db,
+    );
+    if (!res.ok) throw new Error(`confirm failed: ${res.error.message}`);
+
+    const rows = db.select().from(schema.assetTransactions).all();
+    const marked = rows.filter((r) => r.valuationBasis === "market-fx");
+    const unmarked = rows.filter((r) => r.valuationBasis == null);
+    // ETHBTC emits two market-valued legs (ETH buy + BTC sell);
+    // BTCEUR and BNBEUR are fiat-quoted legs, unmarked.
+    expect(marked).toHaveLength(2);
+    expect(unmarked).toHaveLength(2);
+    for (const r of unmarked) expect(r.tradeCurrency).toBe("EUR");
+    for (const r of marked) expect(r.fxSource).toBe("historical");
+  });
+});
+
+// Audit R8: parse failures block the commit until explicitly acknowledged,
+// and the row-level errors are persisted in the import audit event.
+const STATEMENT_WITH_BAD_ROW_CSV = `Date,Time,Value date,Product,ISIN,Description,FX,Change,,Balance,,Order Id
+18-03-2026,07:03,17-03-2026,UNITEDHEALTH GROUP INC,US91324P1021,Dividendo,,USD,"6,63",USD,"5,64",
+not-a-date,07:02,17-03-2026,UNITEDHEALTH GROUP INC,US91324P1021,Dividendo,,USD,"1,00",USD,"1,00",
+`;
+
+describe("confirmImport — parse-error acknowledgement (R8)", () => {
+  let db: DB;
+  let accountId: string;
+
+  beforeEach(async () => {
+    db = makeDb();
+    const acc = await createAccount(
+      { name: "DeGiro Broker", accountType: "broker", currency: "EUR", openingBalanceNative: 0 },
+      db,
+    );
+    if (!acc.ok) throw new Error("account setup");
+    accountId = acc.data.id;
+  });
+
+  it("refuses to commit unacknowledged parse errors, writing nothing", async () => {
+    const res = await confirmImport(
+      { source: "degiro", accountId, csvText: STATEMENT_WITH_BAD_ROW_CSV },
+      db,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("validation");
+      expect(res.error.message).toMatch(/failed to parse/);
+    }
+    expect(db.select().from(schema.assetTransactions).all()).toHaveLength(0);
+  });
+
+  it("commits with acknowledgeErrors and persists the errors in the audit event", async () => {
+    const res = await confirmImport(
+      {
+        source: "degiro", accountId,
+        csvText: STATEMENT_WITH_BAD_ROW_CSV,
+        acknowledgeErrors: true,
+      },
+      db,
+    );
+    if (!res.ok) throw new Error(`confirm failed: ${res.error.message}`);
+    expect(res.data.insertedDividends).toBe(1);
+    expect(res.data.skippedErrors).toBe(1);
+
+    const audit = db
+      .select()
+      .from(schema.auditEvents)
+      .all()
+      .find((e) => e.entityType === "import");
+    expect(audit).toBeDefined();
+    const payload = JSON.parse(audit!.nextJson!) as {
+      parseErrors: Array<{ rowIndex: number; message: string }>;
+    };
+    expect(payload.parseErrors).toHaveLength(1);
+    expect(payload.parseErrors[0].message).toMatch(/Date/i);
   });
 });

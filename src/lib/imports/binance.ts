@@ -125,6 +125,10 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       // the same fingerprint. Binance exports are order-stable across re-runs.
       rowIndex: idx,
     });
+    // Crypto-quoted trades (ETHBTC, ADAUSDT, …) get their EUR value from the
+    // quote currency's daily close in fx_rates — market data, not user input.
+    // Mark both legs so the tax report can disclose it (audit T6).
+    const marketValued = !FIAT_QUOTE_CURRENCIES.has(split.quote);
     out.push({
       kind: "trade",
       source: SOURCE,
@@ -138,6 +142,7 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
       priceNative: price,
       currency: split.quote,
       fees: null,
+      valuationBasis: marketValued ? "market-fx" : null,
     });
 
     // Crypto-crypto permuta: Binance represents a swap as ONE CSV row, but
@@ -148,7 +153,7 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
     // in the quote currency: `insertTrade` converts via fx_rates[quote] ->
     // EUR, so the EUR value of the quote leg ends up equal to the EUR value
     // of the base leg for that day.
-    if (!FIAT_QUOTE_CURRENCIES.has(split.quote)) {
+    if (marketValued) {
       const quoteQty =
         amount.value ?? (executed.value != null ? executed.value * price : 0);
       if (quoteQty > 0) {
@@ -177,6 +182,7 @@ export function parseBinanceCsv(csv: string): ImportParseResult {
           priceNative: 1,
           currency: split.quote,
           fees: null,
+          valuationBasis: "market-fx",
         });
       }
     }

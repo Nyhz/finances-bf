@@ -123,10 +123,11 @@ Recharts, styled via CSS variables so they track the theme. Tooltips minimal —
 | `/assets` | Master asset list with current holdings, create/edit/deactivate, manual price override. |
 | `/transactions` | Unified timeline of asset trades + cash movements. Create flow. Import CSV. |
 | `/taxes` | Yearly tax summary — realized gains, dividends, withholding tax. Year selector. Export PDF. |
+| `/statement` | Visual portfolio statement — value chart with range selector, allocation donut by asset type, value by account, P&L by type, holdings grouped by type, accounts table. Export PDF / XLSX / CSV via `/api/exports/statement?format=`. |
 | `/audit` | Audit log of entity mutations, filterable by entity type/id. |
 | `/health` | JSON health check. |
 | `POST /api/cron/sync-prices` | Cron-triggered price sync route (shared-token gated). |
-| `/api/exports/*` | PDF export endpoints. |
+| `/api/exports/*` | PDF/XLSX/CSV export endpoints. |
 
 ### Layout shell
 - **Top nav** — brand on left, account quick-switcher center, theme toggle + sensitive toggle on right.
@@ -236,14 +237,23 @@ Inline scheduled route, not a separate worker.
 
 - Route: `src/app/api/cron/sync-prices/route.ts`.
 - Triggered by an external cron (launchd on the host) hitting `POST /api/cron/sync-prices` with a shared token (`CRON_SECRET`).
-- Gated: skips if already ran successfully today (check `price_history.source='yahoo'` last row).
+- Gated: skips if already ran successfully today (check `price_history.source='yahoo'` last row). The same-day skip is intentional idempotency — a re-run does NOT refresh that day's close; delete the day's `price_history` row to force one.
+- Concurrency: an in-process guard returns 409 while a run is in flight; external calls carry a 10s timeout and retry with backoff.
 - Incremental historical backfill: fetches missing days per symbol.
 - Retries with delay on rate-limit errors.
 - FX ingestion: pulls `EURUSD=X` (and any other needed pairs) into `price_history` with `source='yahoo_fx'`.
 - Asset valuations: after each sync, recomputes `asset_valuations` for active assets for the new day.
 
 ### USD → EUR conversion
-Market FX (`EURUSD=X` from `price_history`) first. Fallback to `fxRateToEur` stored on the originating transaction. Last resort: `1.0` with a warning badge on the row.
+Market FX (`EURUSD=X` from `price_history`) first. Fallback to `fxRateToEur` stored on the originating transaction. Last resort: `1.0` with a warning badge on the row. **This last-resort applies to display valuations only — never to tax data.** Tax-relevant EUR amounts are stamped at entry time via `fx_rates` (precedence in `src/lib/fx.ts`: explicit user/broker rate → exact-date rate → stale-latest rate, flagged via `fxSource`), and entry is rejected when no rate exists at all.
+
+### Tax-data provenance (hard invariant)
+Values feeding the tax report (`src/server/tax/`) trace to user-entered or broker-CSV transaction data; they are never derived from or backfilled with market quotes. One sanctioned exception, always disclosed:
+
+- **Crypto permutas (Binance crypto↔crypto trades):** both legs are valued at the quote currency's daily close from `fx_rates` (CoinGecko for stablecoins/crypto quotes), per DGT V0999-18 / V1149-20 — there is no user-entered EUR value for these trades. Such rows carry `asset_transactions.valuationBasis = 'market-fx'` and are flagged in the Gains table and the tax detail export.
+- **Year-end balances (M720/M721/D-6):** declared at market value from `asset_valuations` by legal definition. Missing valuations surface as `UNVALUED` (never silent €0); valuations older than 10 days before Dec 31 are flagged stale.
+
+The executable form of this invariant is `src/server/tax/__tests__/market-independence.test.ts`.
 
 ### Freshness indicator
 Each asset row shows last market update timestamp + source (Yahoo / manual / stale).

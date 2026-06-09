@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, eq, inArray, max, or } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import {
   assetPositions,
@@ -17,18 +17,40 @@ export type PositionRow = {
   valuationEur: number | null;
 };
 
-async function latestValuationFor(
-  assetId: string,
+/** Latest valuation per asset in two queries (audit P2) instead of one
+ *  query per position: max(valuationDate) grouped by asset, then the exact
+ *  rows via the (assetId, valuationDate) unique index. */
+async function latestValuationsFor(
+  assetIds: string[],
   db: DB,
-): Promise<AssetValuation | null> {
-  const row = await db
+): Promise<Map<string, AssetValuation>> {
+  if (assetIds.length === 0) return new Map();
+  const latest = await db
+    .select({
+      assetId: assetValuations.assetId,
+      latestDate: max(assetValuations.valuationDate),
+    })
+    .from(assetValuations)
+    .where(inArray(assetValuations.assetId, assetIds))
+    .groupBy(assetValuations.assetId)
+    .all();
+  const pairs = latest.filter((r): r is { assetId: string; latestDate: string } => r.latestDate != null);
+  if (pairs.length === 0) return new Map();
+  const rows = await db
     .select()
     .from(assetValuations)
-    .where(eq(assetValuations.assetId, assetId))
-    .orderBy(desc(assetValuations.valuationDate))
-    .limit(1)
-    .get();
-  return row ?? null;
+    .where(
+      or(
+        ...pairs.map((pair) =>
+          and(
+            eq(assetValuations.assetId, pair.assetId),
+            eq(assetValuations.valuationDate, pair.latestDate),
+          ),
+        ),
+      ),
+    )
+    .all();
+  return new Map(rows.map((v) => [v.assetId, v]));
 }
 
 export async function listPositions(db: DB = defaultDb): Promise<PositionRow[]> {
@@ -38,19 +60,21 @@ export async function listPositions(db: DB = defaultDb): Promise<PositionRow[]> 
     .innerJoin(assets, eq(assets.id, assetPositions.assetId))
     .all();
 
-  const out: PositionRow[] = [];
-  for (const row of rows) {
-    const valuation = await latestValuationFor(row.position.assetId, db);
-    out.push({
+  const valuationByAsset = await latestValuationsFor(
+    rows.map((r) => r.position.assetId),
+    db,
+  );
+  return rows.map((row) => {
+    const valuation = valuationByAsset.get(row.position.assetId) ?? null;
+    return {
       position: row.position,
       asset: row.asset,
       valuation,
       valuationEur: valuation
         ? row.position.quantity * valuation.unitPriceEur
         : null,
-    });
-  }
-  return out;
+    };
+  });
 }
 
 export async function getPositionsByAccount(

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, lte } from "drizzle-orm";
 import { ulid } from "ulid";
 import type { DB } from "../db/client";
 import {
@@ -214,18 +214,20 @@ export async function syncPrices(
         .from(fxRates)
         .where(and(eq(fxRates.currency, currency), eq(fxRates.date, iso)))
         .get()) ?? null,
-    findLatest: async (currency, onOrBefore) => {
-      const rows = await db
+    // Audit P6: ORDER BY + LIMIT instead of loading the whole currency's
+    // history and sorting in JS on every asset.
+    findLatest: async (currency, onOrBefore) =>
+      (await db
         .select()
         .from(fxRates)
-        .where(eq(fxRates.currency, currency))
-        .all();
-      const filtered = onOrBefore
-        ? rows.filter((r) => r.date <= onOrBefore)
-        : rows;
-      filtered.sort((a, b) => b.date.localeCompare(a.date));
-      return filtered[0] ?? null;
-    },
+        .where(
+          onOrBefore
+            ? and(eq(fxRates.currency, currency), lte(fxRates.date, onOrBefore))
+            : eq(fxRates.currency, currency),
+        )
+        .orderBy(desc(fxRates.date))
+        .limit(1)
+        .get()) ?? null,
   };
 
   for (const asset of activeAssets) {

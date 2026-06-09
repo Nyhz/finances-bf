@@ -42,6 +42,12 @@ export type ParsedTradeRow = CommonFields & {
    * fees in EUR even for USD trades). Importer skips the FX conversion.
    */
   feesAlreadyEur?: boolean;
+  /**
+   * "market-fx" marks legs whose EUR value comes from a market daily close
+   * (Binance crypto-crypto permutas) instead of user/broker-entered data.
+   * Persisted to asset_transactions.valuationBasis for tax-report disclosure.
+   */
+  valuationBasis?: "market-fx" | null;
 };
 
 export type ParsedCashMovementRow = CommonFields & {

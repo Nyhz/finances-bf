@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { isoDatePastSchema } from "./_schemas";
 export const createSwapSchema = z.object({
   accountId: z.string().min(1),
-  tradeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "yyyy-MM-dd"),
+  tradeDate: isoDatePastSchema,
   outgoingAssetId: z.string().min(1),
   outgoingQuantity: z.number().positive(),
   incomingAssetId: z.string().min(1),

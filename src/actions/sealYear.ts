@@ -6,6 +6,7 @@ import { db as defaultDb, type DB } from "../db/client";
 import { auditEvents, taxYearSnapshots } from "../db/schema";
 import { buildTaxReport } from "../server/tax/report";
 import { computeInformationalModelsStatus } from "../server/tax/m720";
+import { reportContentHash } from "../server/tax/seals";
 import { aggregateBlocksFromBalances } from "../server/tax/m720Aggregate";
 import { ACTOR, type ActionResult, revalidateTaxEvent } from "./_shared";
 import { sealYearSchema } from "./sealYear.schema";
@@ -16,7 +17,7 @@ export async function sealYear(
 ): Promise<ActionResult<{ year: number; snapshotId: string }>> {
   const parsed = sealYearSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: { code: "validation", message: "invalid input" } };
-  const { year, notes } = parsed.data;
+  const { year, notes, acknowledgeUnvalued } = parsed.data;
 
   try {
     const result = db.transaction((tx) => {
@@ -25,7 +26,20 @@ export async function sealYear(
       const report = buildTaxReport(tx as unknown as DB, year);
       const blocks = aggregateBlocksFromBalances(report.yearEndBalances);
       const models = computeInformationalModelsStatus(tx as unknown as DB, year, blocks);
-      const payload = { report, ...models };
+      // Audit T4: sealing freezes the declared M720/M721 values. Refuse when
+      // a foreign block contains unvalued positions unless the Commander
+      // explicitly acknowledged that the thresholds may be wrong.
+      const unvaluedBlocks = [...models.m720.blocks, ...models.m721.blocks].filter(
+        (b) => b.hasUnvalued,
+      );
+      if (unvaluedBlocks.length > 0 && !acknowledgeUnvalued) {
+        const list = unvaluedBlocks.map((b) => `${b.country}/${b.type}`).join(", ");
+        throw new Error(
+          `cannot seal ${year}: unvalued foreign year-end balances (${list}). ` +
+            `Set a manual price for the affected assets, or seal with explicit acknowledgement.`,
+        );
+      }
+      const payload = { report, contentHash: reportContentHash(report), ...models };
       const id = ulid();
       tx.insert(taxYearSnapshots).values({
         id, year,
@@ -43,7 +57,7 @@ export async function sealYear(
         summary: `sealed year ${year}`,
         previousJson: null,
         nextJson: JSON.stringify({ snapshotId: id }),
-        contextJson: JSON.stringify({ actor: ACTOR }),
+        contextJson: JSON.stringify({ actor: ACTOR, acknowledgeUnvalued }),
         createdAt: Date.now(),
       }).run();
       return { year, snapshotId: id };
@@ -52,6 +66,9 @@ export async function sealYear(
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
+    if (message.startsWith("cannot seal")) {
+      return { ok: false, error: { code: "conflict", message } };
+    }
     return { ok: false, error: { code: "db", message } };
   }
 }

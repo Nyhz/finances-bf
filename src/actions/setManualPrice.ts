@@ -1,19 +1,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import {
-  assetValuations,
   assets,
   auditEvents,
-  fxRates,
   priceHistory,
   type PriceHistoryRow,
 } from "../db/schema";
-import { toIsoDate, type FxLookup } from "../lib/fx";
+import { rebuildValuationsForAsset } from "../server/valuations";
+import {
+  FxUnavailableError,
+  resolveFxRateSync,
+  toIsoDate,
+  type FxSource,
+} from "../lib/fx";
+import { dbFxLookup } from "./_fx";
 import { ACTOR, type ActionResult } from "./_shared";
 import { setManualPriceSchema } from "./setManualPrice.schema";
 
@@ -54,46 +59,9 @@ export async function setManualPrice(
       };
     }
 
-    const lookup: FxLookup = {
-      findOnDate: async (currency, isoDate) => {
-        const row = await db
-          .select()
-          .from(fxRates)
-          .where(and(eq(fxRates.currency, currency), eq(fxRates.date, isoDate)))
-          .get();
-        return row ? { currency: row.currency, date: row.date, rateToEur: row.rateToEur } : null;
-      },
-      findLatest: async (currency, onOrBefore) => {
-        const row = await db
-          .select()
-          .from(fxRates)
-          .where(
-            onOrBefore
-              ? and(eq(fxRates.currency, currency), lte(fxRates.date, onOrBefore))
-              : eq(fxRates.currency, currency),
-          )
-          .orderBy(desc(fxRates.date))
-          .get();
-        return row ? { currency: row.currency, date: row.date, rateToEur: row.rateToEur } : null;
-      },
-    };
-
-    let fxRate = 1;
-    let fxSource: "unit" | "historical" | "latest" = "unit";
-    if (asset.currency !== "EUR") {
-      const onDate = await lookup.findOnDate(asset.currency, priceDate);
-      if (onDate) {
-        fxRate = onDate.rateToEur;
-        fxSource = "historical";
-      } else {
-        const latest = await lookup.findLatest(asset.currency, priceDate);
-        if (!latest) {
-          throw new Error(`No FX rate available for ${asset.currency} on ${priceDate}`);
-        }
-        fxRate = latest.rateToEur;
-        fxSource = "latest";
-      }
-    }
+    const fx = resolveFxRateSync(asset.currency, priceDate, dbFxLookup(db));
+    const fxRate: number = fx.rate;
+    const fxSource: FxSource = fx.source;
 
     const priceEur = roundMoney(priceNative * fxRate);
     const now = Date.now();
@@ -130,28 +98,12 @@ export async function setManualPrice(
         priceRow = tx.select().from(priceHistory).where(eq(priceHistory.id, id)).get()!;
       }
 
-      const existingValuation = tx
-        .select()
-        .from(assetValuations)
-        .where(
-          and(
-            eq(assetValuations.assetId, assetId),
-            eq(assetValuations.valuationDate, priceDate),
-          ),
-        )
-        .get();
-      if (existingValuation) {
-        const marketValueEur = roundMoney(existingValuation.quantity * priceEur);
-        tx
-          .update(assetValuations)
-          .set({
-            unitPriceEur: priceEur,
-            marketValueEur,
-            priceSource: "manual",
-          })
-          .where(eq(assetValuations.id, existingValuation.id))
-          .run();
-      }
+      // Audit M5: rebuild the valuation series from the priced date forward
+      // instead of patching a single pre-existing row. A manual price for a
+      // held-but-never-valued asset (the main use case) or a past date must
+      // create/refresh every carried-forward day, or a Dec-31 manual price
+      // silently never reaches the M720 year-end export.
+      rebuildValuationsForAsset(tx, assetId, priceDate);
 
       tx
         .insert(auditEvents)
@@ -173,7 +125,7 @@ export async function setManualPrice(
             currency: asset.currency,
             fxRateToEur: fxRate,
             fxSource,
-            updatedValuation: Boolean(existingValuation),
+            valuationsRebuiltFrom: priceDate,
           }),
           createdAt: now,
         })
@@ -189,6 +141,20 @@ export async function setManualPrice(
 
     return { ok: true, data: result };
   } catch (err) {
+    if (err instanceof FxUnavailableError) {
+      return {
+        ok: false,
+        error: {
+          code: "validation",
+          message: err.message,
+          fieldErrors: {
+            priceDate: [
+              `No stored FX rate for ${err.currency} on or before ${err.isoDate} — sync FX first.`,
+            ],
+          },
+        },
+      };
+    }
     const message = err instanceof Error ? err.message : "Unknown DB error";
     return { ok: false, error: { code: "db", message } };
   }

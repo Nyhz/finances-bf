@@ -1,14 +1,15 @@
+import { marketEur } from "../../money-types";
 import { describe, expect, it } from "vitest";
 import { buildM720DiffJson, buildM720DiffCsv } from "../tax-m720-diff";
 import type { InformationalModelsStatus } from "../../../server/tax/m720";
 
 const models: InformationalModelsStatus = {
   m720: { blocks: [
-    { country: "IE", type: "broker-securities", valueEur: 80_000, status: "delta_20k", lastDeclaredEur: 55_000 },
-    { country: "NL", type: "broker-securities", valueEur: 10_000, status: "ok", lastDeclaredEur: null },
+    { country: "IE", type: "broker-securities", valueEur: marketEur(80_000), hasUnvalued: false, hasStale: false, status: "delta_20k", lastDeclaredEur: marketEur(55_000) },
+    { country: "NL", type: "broker-securities", valueEur: marketEur(10_000), hasUnvalued: false, hasStale: false, status: "ok", lastDeclaredEur: null },
   ] },
   m721: { blocks: [
-    { country: "MT", type: "crypto", valueEur: 60_000, status: "new", lastDeclaredEur: null },
+    { country: "MT", type: "crypto", valueEur: marketEur(60_000), hasUnvalued: false, hasStale: false, status: "new", lastDeclaredEur: null },
   ] },
   d6: { blocks: [] },
 };

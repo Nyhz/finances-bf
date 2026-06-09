@@ -58,3 +58,19 @@ describe("pricing/yahoo", () => {
     ]);
   });
 });
+
+// Audit R2: a missing/garbage currency from Yahoo must throw, never default
+// to USD — the wrong FX would corrupt valuations silently.
+describe("fetchQuote currency guard", () => {
+  it("throws when Yahoo returns no currency", async () => {
+    quoteMock.mockResolvedValueOnce({ regularMarketPrice: 100 });
+    const { fetchQuote } = await import("./yahoo");
+    await expect(fetchQuote("MYSTERY")).rejects.toThrow(/no usable currency/);
+  });
+
+  it("throws when Yahoo returns a non-ISO currency string", async () => {
+    quoteMock.mockResolvedValueOnce({ regularMarketPrice: 100, currency: "??" });
+    const { fetchQuote } = await import("./yahoo");
+    await expect(fetchQuote("MYSTERY")).rejects.toThrow(/no usable currency/);
+  });
+});

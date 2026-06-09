@@ -2,6 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
+import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
 import { rebuildAfterTradeMutation } from "../server/mutations";
@@ -18,7 +19,17 @@ export async function createSwap(
   db: DB = defaultDb,
 ): Promise<ActionResult<{ sellId: string; buyId: string }>> {
   const parsed = createSwapSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: { code: "validation", message: "invalid input" } };
+  if (!parsed.success) {
+    const flat = z.flattenError(parsed.error);
+    return {
+      ok: false,
+      error: {
+        code: "validation",
+        message: "Invalid input",
+        fieldErrors: flat.fieldErrors as Record<string, string[]>,
+      },
+    };
+  }
   const data = parsed.data;
 
   try {
@@ -35,12 +46,17 @@ export async function createSwap(
       const buyId = ulid();
       const valueEur = data.valueEur;
 
+      // Audit H1: swap legs are deliberately EUR-denominated — the user enters
+      // the swap's EUR valuation, so the monetary columns hold EUR and must say
+      // so. Stamping the asset's currency with fxRateToEur=1 would record a row
+      // whose native amount lies about its unit. tradeCurrency is therefore
+      // "EUR" on both legs (rate 1, source "unit") and unitPrice is EUR/unit.
       tx.insert(assetTransactions).values({
         id: sellId, accountId: data.accountId, assetId: data.outgoingAssetId,
         transactionType: "sell", tradedAt,
         quantity: data.outgoingQuantity,
         unitPrice: valueEur / data.outgoingQuantity,
-        tradeCurrency: outgoing.currency, fxRateToEur: 1,
+        tradeCurrency: "EUR", fxRateToEur: 1, fxSource: "unit",
         tradeGrossAmount: valueEur, tradeGrossAmountEur: valueEur,
         cashImpactEur: valueEur,
         feesAmount: 0, feesAmountEur: 0, netAmountEur: valueEur,
@@ -54,7 +70,7 @@ export async function createSwap(
         transactionType: "buy", tradedAt,
         quantity: data.incomingQuantity,
         unitPrice: valueEur / data.incomingQuantity,
-        tradeCurrency: incoming.currency, fxRateToEur: 1,
+        tradeCurrency: "EUR", fxRateToEur: 1, fxSource: "unit",
         tradeGrossAmount: valueEur, tradeGrossAmountEur: valueEur,
         cashImpactEur: -valueEur,
         feesAmount: 0, feesAmountEur: 0, netAmountEur: -valueEur,
@@ -84,10 +100,12 @@ export async function createSwap(
           updatedAt: Date.now(),
         }).run();
       }
-      rebuildAfterTradeMutation(tx, data.accountId, [
-        data.outgoingAssetId,
-        data.incomingAssetId,
-      ]);
+      rebuildAfterTradeMutation(
+        tx,
+        data.accountId,
+        [data.outgoingAssetId, data.incomingAssetId],
+        data.tradeDate,
+      );
 
       tx.insert(auditEvents).values({
         id: ulid(),
@@ -110,6 +128,17 @@ export async function createSwap(
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
+    if (message.startsWith("tax-lots:")) {
+      const friendly = `The outgoing side exceeds the units held on that date (FIFO check): ${message}`;
+      return {
+        ok: false,
+        error: {
+          code: "validation",
+          message: friendly,
+          fieldErrors: { outgoingQuantity: [friendly] },
+        },
+      };
+    }
     return { ok: false, error: { code: "db", message } };
   }
 }

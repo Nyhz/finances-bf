@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
 import { AppShell } from "@/src/components/layout/AppShell";
 import "./globals.css";
 
@@ -47,10 +46,16 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Inline boot script via dangerouslySetInnerHTML, not next/script:
+            `beforeInteractive` does not support inline children, and React
+            warns on (and never executes) scripts rendered with text children
+            during client navigation. This renders into the server HTML head,
+            runs before first paint, and is inert on client navs — by then
+            the data attributes are already set. */}
+        <script id="theme-boot" dangerouslySetInnerHTML={{ __html: bootScript }} />
+      </head>
       <body className="min-h-full">
-        <Script id="theme-boot" strategy="beforeInteractive">
-          {bootScript}
-        </Script>
         <AppShell>{children}</AppShell>
       </body>
     </html>

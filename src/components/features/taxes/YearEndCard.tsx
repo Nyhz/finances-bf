@@ -30,6 +30,21 @@ function BlockList({ title, blocks }: { title: string; blocks: AnnotatedBlock[] 
               <span className="font-mono text-xs">{b.country}</span>
               <span className="text-xs text-muted-foreground">{b.type}</span>
               <Badge className={STATUS_COLORS[b.status]}>{b.status}</Badge>
+              {b.hasUnvalued ? (
+                <Badge
+                  variant="danger"
+                  title="At least one position in this block has no year-end valuation — the declared value and the 50k/20k thresholds are unreliable."
+                >
+                  UNVALUED
+                </Badge>
+              ) : b.hasStale ? (
+                <Badge
+                  variant="warning"
+                  title="At least one position was valued with a price more than 10 days older than year-end."
+                >
+                  stale value
+                </Badge>
+              ) : null}
             </div>
             <div className="text-sm tabular-nums">
               <SensitiveValue>{formatEur(b.valueEur)}</SensitiveValue>
@@ -47,8 +62,21 @@ function BlockList({ title, blocks }: { title: string; blocks: AnnotatedBlock[] 
 }
 
 export function YearEndCard({ models }: { models: InformationalModelsStatus }) {
+  const hasUnvalued = [...models.m720.blocks, ...models.m721.blocks, ...models.d6.blocks].some(
+    (b) => b.hasUnvalued,
+  );
   return (
     <Card title="Year-end informational models">
+      {hasUnvalued ? (
+        <div
+          role="alert"
+          className="mx-4 mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          Some positions have no year-end valuation — block values below exclude them and
+          the declaration thresholds are unreliable. Set a manual price (Assets page) for
+          the affected assets.
+        </div>
+      ) : null}
       <div className="grid gap-4 p-4 md:grid-cols-3">
         <BlockList title="Modelo 720 (foreign securities + accounts)" blocks={models.m720.blocks} />
         <BlockList title="Modelo 721 (foreign crypto)" blocks={models.m721.blocks} />

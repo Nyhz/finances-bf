@@ -40,7 +40,7 @@ describe("resolveFxRate", () => {
       { currency: "USD", date: "2026-04-17", rateToEur: 0.92 },
     ]);
     const result = await resolveFxRate("USD", "2026-04-17", lookup);
-    expect(result).toEqual({ rate: 0.92, source: "historical" });
+    expect(result).toEqual({ rate: 0.92, source: "historical", rateDate: "2026-04-17" });
   });
 
   it("falls back to latest with stale=true when date missing", async () => {
@@ -49,7 +49,7 @@ describe("resolveFxRate", () => {
       { currency: "USD", date: "2026-04-01", rateToEur: 0.88 },
     ]);
     const result = await resolveFxRate("USD", "2026-04-17", lookup);
-    expect(result).toEqual({ rate: 0.91, source: "latest", stale: true });
+    expect(result).toEqual({ rate: 0.91, source: "latest", stale: true, rateDate: "2026-04-10" });
   });
 
   it("throws when no rate is available and currency is not EUR", async () => {

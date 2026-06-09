@@ -1,3 +1,4 @@
+import { txEur } from "../../money-types";
 import { describe, expect, it } from "vitest";
 import { buildCasillasCsv } from "../tax-casillas";
 import type { TaxReport } from "../../../server/tax/report";
@@ -8,16 +9,16 @@ const sample = (overrides?: Partial<TaxReport["totals"]>): TaxReport => ({
   dividends: [],
   yearEndBalances: [],
   totals: {
-    realizedGainsEur: 500,
-    realizedLossesComputableEur: -100,
-    nonComputableLossesEur: 40,
-    netComputableEur: 400,
-    proceedsEur: 1500,
-    costBasisEur: 1100,
-    feesEur: 0,
-    dividendsGrossEur: 120,
-    withholdingOrigenTotalEur: 18,
-    withholdingDestinoTotalEur: 0,
+    realizedGainsEur: txEur(500),
+    realizedLossesComputableEur: txEur(-100),
+    nonComputableLossesEur: txEur(40),
+    netComputableEur: txEur(400),
+    proceedsEur: txEur(1500),
+    costBasisEur: txEur(1100),
+    feesEur: txEur(0),
+    dividendsGrossEur: txEur(120),
+    withholdingOrigenTotalEur: txEur(18),
+    withholdingDestinoTotalEur: txEur(0),
     ...overrides,
   },
 });

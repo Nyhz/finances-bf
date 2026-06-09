@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gte } from "drizzle-orm";
 import { ulid } from "ulid";
 import type { db as dbModule, DB } from "../db/client";
 import {
@@ -46,11 +46,13 @@ function iterDays(fromIso: string, toIso: string, everyDay: boolean): string[] {
  * The rebuild is idempotent — all existing rows for the asset are wiped
  * before repopulating.
  */
-export function rebuildValuationsForAsset(tx: DbOrTx, assetId: string): void {
+export function rebuildValuationsForAsset(
+  tx: DbOrTx,
+  assetId: string,
+  fromIso?: string,
+): void {
   const asset = tx.select().from(assets).where(eq(assets.id, assetId)).get();
   if (!asset) return;
-
-  tx.delete(assetValuations).where(eq(assetValuations.assetId, assetId)).run();
 
   const trades = tx
     .select()
@@ -58,7 +60,22 @@ export function rebuildValuationsForAsset(tx: DbOrTx, assetId: string): void {
     .where(eq(assetTransactions.assetId, assetId))
     .orderBy(asc(assetTransactions.tradedAt))
     .all();
-  if (trades.length === 0) return;
+  if (trades.length === 0) {
+    // No trades left at all — wipe everything regardless of window.
+    tx.delete(assetValuations).where(eq(assetValuations.assetId, assetId)).run();
+    return;
+  }
+
+  // Audit P1: incremental rebuild. Rows before `fromIso` are untouched (the
+  // trades that produced them did not change); only the window from the
+  // earliest affected trade date onwards is wiped and recomputed.
+  if (fromIso) {
+    tx.delete(assetValuations)
+      .where(and(eq(assetValuations.assetId, assetId), gte(assetValuations.valuationDate, fromIso)))
+      .run();
+  } else {
+    tx.delete(assetValuations).where(eq(assetValuations.assetId, assetId)).run();
+  }
 
   const symbol = (asset.providerSymbol ?? asset.symbol ?? "").trim();
   if (!symbol) return;
@@ -86,14 +103,20 @@ export function rebuildValuationsForAsset(tx: DbOrTx, assetId: string): void {
   if (fxCurve.length === 0) return;
 
   const firstTradeIso = toIsoDate(new Date(trades[0].tradedAt));
+  const startIso = fromIso && fromIso > firstTradeIso ? fromIso : firstTradeIso;
   const todayIso = toIsoDate(new Date());
   const everyDay = asset.assetType === "crypto";
-  const days = iterDays(firstTradeIso, todayIso, everyDay);
+  const days = iterDays(startIso, todayIso, everyDay);
 
   let priceIdx = 0;
   let lastPrice: number | null = null;
   let fxIdx = 0;
   let lastFx: number | null = asset.currency === "EUR" ? 1 : null;
+  // Trade cursor (audit P1): one forward pass over the ledger instead of a
+  // full rescan per day. Trades before the window seed the running quantity
+  // when the first day's cursor advance absorbs them.
+  let tradeIdx = 0;
+  let runningQty = 0;
 
   const now = Date.now();
   for (const day of days) {
@@ -105,15 +128,16 @@ export function rebuildValuationsForAsset(tx: DbOrTx, assetId: string): void {
       lastFx = fxCurve[fxIdx].rate;
       fxIdx++;
     }
-    if (lastPrice == null || lastFx == null) continue;
 
     const dayEnd = new Date(`${day}T23:59:59Z`).getTime();
-    let qty = 0;
-    for (const t of trades) {
-      if (t.tradedAt > dayEnd) break;
-      if (t.transactionType === "buy") qty += t.quantity;
-      else if (t.transactionType === "sell") qty -= t.quantity;
+    while (tradeIdx < trades.length && trades[tradeIdx].tradedAt <= dayEnd) {
+      const t = trades[tradeIdx];
+      if (t.transactionType === "buy") runningQty += t.quantity;
+      else if (t.transactionType === "sell") runningQty -= t.quantity;
+      tradeIdx++;
     }
+    if (lastPrice == null || lastFx == null) continue;
+    const qty = runningQty;
     if (qty <= 0) continue;
 
     const unitPriceEur = round(lastPrice * lastFx, 6);
@@ -137,10 +161,9 @@ export function rebuildValuationsForAsset(tx: DbOrTx, assetId: string): void {
 export function rebuildValuationsForAssets(
   tx: DbOrTx,
   assetIds: Iterable<string>,
+  fromIso?: string,
 ): void {
   const ids = [...new Set(assetIds)];
   if (ids.length === 0) return;
-  // Bulk-wipe is cheaper than per-asset delete when many assets are touched.
-  tx.delete(assetValuations).where(inArray(assetValuations.assetId, ids)).run();
-  for (const id of ids) rebuildValuationsForAsset(tx, id);
+  for (const id of ids) rebuildValuationsForAsset(tx, id, fromIso);
 }

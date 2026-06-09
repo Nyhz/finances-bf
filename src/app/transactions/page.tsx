@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
+import { Badge } from "@/src/components/ui/Badge";
 import { Button } from "@/src/components/ui/Button";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
@@ -47,7 +48,7 @@ export default async function TransactionsPage({
         <div className="flex items-center gap-2">
           <TransactionsExtraActions
             accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
-            assets={assets.map((a) => ({ id: a.id, name: a.name }))}
+            assets={assets.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))}
           />
           <TransactionsNewButton
             accounts={accounts
@@ -122,6 +123,15 @@ export default async function TransactionsPage({
               cell: (r) => (
                 <span className="tabular-nums text-xs text-muted-foreground">
                   {r.tradeCurrency === "EUR" ? "—" : r.fxRateToEur.toFixed(6)}
+                  {r.fxSource === "latest" ? (
+                    <Badge
+                      variant="warning"
+                      className="ml-1.5"
+                      title="No FX rate existed for the trade date — the most recent earlier rate was used. EUR amounts derived from it are approximate."
+                    >
+                      stale FX
+                    </Badge>
+                  ) : null}
                 </span>
               ),
             },

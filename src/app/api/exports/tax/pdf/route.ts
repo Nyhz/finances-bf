@@ -4,6 +4,7 @@ import { buildTaxReport } from "@/src/server/tax/report";
 import { getSnapshot } from "@/src/server/tax/seals";
 import { computeInformationalModelsStatus, type InformationalModelsStatus } from "@/src/server/tax/m720";
 import { aggregateBlocksFromBalances } from "@/src/server/tax/m720Aggregate";
+import { getInterestForYear } from "@/src/server/tax/interest";
 import { buildTaxReportPdf } from "@/src/lib/pdf/tax-report";
 
 export async function GET(req: Request) {
@@ -15,11 +16,13 @@ export async function GET(req: Request) {
   const models: InformationalModelsStatus = snapshot
     ? snapshot.payload
     : computeInformationalModelsStatus(db, year, aggregateBlocksFromBalances(report.yearEndBalances));
+  const interestEur = await getInterestForYear(year, db);
   const pdf = buildTaxReportPdf({
     year,
     report,
     models,
     sealedAt: snapshot?.sealedAt ?? null,
+    interestEur,
   });
   return new NextResponse(pdf as unknown as BodyInit, {
     headers: {

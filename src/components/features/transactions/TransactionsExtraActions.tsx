@@ -8,7 +8,7 @@ import { CreateDividendModal } from "./CreateDividendModal";
 
 type Props = {
   accounts: { id: string; name: string }[];
-  assets: { id: string; name: string }[];
+  assets: { id: string; name: string; currency: string }[];
 };
 
 export function TransactionsExtraActions({ accounts, assets }: Props) {

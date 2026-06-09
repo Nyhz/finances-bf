@@ -1,0 +1,1 @@
+ALTER TABLE `asset_transactions` ADD `valuation_basis` text;

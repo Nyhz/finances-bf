@@ -1,11 +1,18 @@
 import { lt } from "drizzle-orm";
+import { marketEur, type MarketEur } from "../../lib/money-types";
 import type { DB } from "../../db/client";
 import { taxYearSnapshots } from "../../db/schema";
 
 export type Model720Block = {
   country: string;
   type: "broker-securities" | "bank-accounts" | "crypto";
-  valueEur: number;
+  /** Sum of the VALUED balances only — see hasUnvalued. */
+  valueEur: MarketEur;
+  /** At least one position in this block has no year-end valuation; the
+   *  50k/20k threshold checks below are unreliable until it is valued. */
+  hasUnvalued: boolean;
+  /** At least one position was valued with a stale (>10d old) valuation. */
+  hasStale: boolean;
 };
 
 export type AnnotatedBlock = Model720Block & {
@@ -90,7 +97,9 @@ function annotate(
       out.push({
         country: prior.country,
         type: prior.type,
-        valueEur: 0,
+        valueEur: marketEur(0),
+        hasUnvalued: false,
+        hasStale: false,
         status: "full_exit",
         lastDeclaredEur: prior.valueEur,
       });

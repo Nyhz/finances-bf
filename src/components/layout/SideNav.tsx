@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   ArrowLeftRight,
   Coins,
+  FileText,
   LayoutDashboard,
   Receipt,
   ScrollText,
@@ -28,6 +29,7 @@ const primaryItems: NavItem[] = [
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/imports", label: "Imports", icon: Upload },
   { href: "/taxes", label: "Taxes", icon: Receipt },
+  { href: "/statement", label: "Statement", icon: FileText },
 ];
 
 const secondaryItems: NavItem[] = [

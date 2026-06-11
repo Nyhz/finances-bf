@@ -19,12 +19,9 @@ import {
   type FxSource,
 } from "../lib/fx";
 import { dbFxLookup } from "./_fx";
+import { roundEur } from "../lib/money";
 import { ACTOR, type ActionResult } from "./_shared";
 import { setManualPriceSchema } from "./setManualPrice.schema";
-
-function roundMoney(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 export async function setManualPrice(
   input: unknown,
@@ -66,7 +63,7 @@ export async function setManualPrice(
     const fxRate: number = fx.rate;
     const fxSource: FxSource = fx.source;
 
-    const priceEur = roundMoney(priceNative * fxRate);
+    const priceEur = roundEur(priceNative * fxRate);
     const now = Date.now();
 
     const result = db.transaction((tx) => {
@@ -137,9 +134,10 @@ export async function setManualPrice(
       return priceRow;
     });
 
+    revalidatePath("/");
     revalidatePath("/assets");
-    revalidatePath("/overview");
-    revalidatePath("/positions");
+    // Manual prices feed the valuation series → year-end balances on /taxes.
+    revalidatePath("/taxes");
     revalidatePath("/audit");
 
     return { ok: true, data: result };

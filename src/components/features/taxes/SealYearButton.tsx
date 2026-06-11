@@ -6,17 +6,22 @@ import { Button } from "@/src/components/ui/Button";
 import { ConfirmModal } from "@/src/components/ui/ConfirmModal";
 import { sealYear } from "@/src/actions/sealYear";
 
-type Props = { year: number; hasUnvalued?: boolean };
+type Props = { year: number; hasUnvalued?: boolean; hasUnknownCountry?: boolean };
 
-export function SealYearButton({ year, hasUnvalued = false }: Props) {
+export function SealYearButton({ year, hasUnvalued = false, hasUnknownCountry = false }: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [acknowledge, setAcknowledge] = useState(false);
+  const [acknowledgeCountry, setAcknowledgeCountry] = useState(false);
   const router = useRouter();
 
   async function handleConfirm() {
     setError(null);
-    const result = await sealYear({ year, acknowledgeUnvalued: acknowledge });
+    const result = await sealYear({
+      year,
+      acknowledgeUnvalued: acknowledge,
+      acknowledgeUnknownCountry: acknowledgeCountry,
+    });
     if (!result.ok) {
       setError(result.error.message);
       // keep modal open so the error is visible
@@ -35,6 +40,7 @@ export function SealYearButton({ year, hasUnvalued = false }: Props) {
           if (!next) {
             setError(null);
             setAcknowledge(false);
+            setAcknowledgeCountry(false);
           }
         }}
         title={`¿Sellar ${year}?`}
@@ -58,6 +64,21 @@ export function SealYearButton({ year, hasUnvalued = false }: Props) {
                   <strong>sin valorar</strong> — los umbrales de declaración de
                   M720/M721 podrían ser incorrectos. Sellar de todos modos con estos
                   valores incompletos.
+                </span>
+              </label>
+            ) : null}
+            {hasUnknownCountry ? (
+              <label className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={acknowledgeCountry}
+                  onChange={(e) => setAcknowledgeCountry(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Algunos saldos a cierre de ejercicio pertenecen a cuentas{" "}
+                  <strong>sin país asignado</strong> — no se pueden comprobar contra los
+                  umbrales de M720/M721 por geografía. Sellar de todos modos.
                 </span>
               </label>
             ) : null}

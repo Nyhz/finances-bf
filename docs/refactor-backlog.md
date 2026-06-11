@@ -55,7 +55,14 @@ paths.
 
 ---
 
-## 2. Unify `confirmImport.resolveFx` with `lib/fx.ts::resolveFxRate`
+## 2. ~~Unify `confirmImport.resolveFx` with `lib/fx.ts::resolveFxRate`~~ — OBSOLETE (2026-06-11)
+
+The importer subsystem (including `confirmImport.ts` and its local `resolveFx`)
+was deleted; manual entry is the only registration path. FX resolution is now
+centralised in `lib/fx.ts` (`resolveFxRateSync`) + `actions/_fx.ts`
+(`requireManualFx`, `dbFxLookup`). Nothing left to unify.
+
+**Original item (kept for history):**
 
 **Current state.**
 
@@ -88,7 +95,7 @@ surgery than it looks.
 
 ---
 
-## 3. `setManualPrice` revalidation helper
+## 3. ~~`setManualPrice` revalidation helper~~ — DONE (2026-06-11 field-check pass)
 
 **Current state.** `src/actions/setManualPrice.ts:185-188` revalidates
 `/assets`, `/overview`, `/positions`, `/audit` inline. Nearly matches

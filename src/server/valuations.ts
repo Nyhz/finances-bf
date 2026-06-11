@@ -1,6 +1,6 @@
 import { and, asc, eq, gte } from "drizzle-orm";
 import { ulid } from "ulid";
-import type { db as dbModule, DB } from "../db/client";
+import type { DbOrTx } from "../db/client";
 import {
   assetTransactions,
   assetValuations,
@@ -11,8 +11,6 @@ import {
 import { round } from "../lib/money";
 import { DAY_MS, isWeekday, toIsoDate } from "../lib/time";
 
-type Tx = Parameters<Parameters<(typeof dbModule)["transaction"]>[0]>[0];
-type DbOrTx = DB | Tx;
 
 function iterDays(fromIso: string, toIso: string, everyDay: boolean): string[] {
   const out: string[] = [];

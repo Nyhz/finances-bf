@@ -10,6 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
+import { formatEur, formatEurCompact } from "@/src/lib/format";
 import type { SavingsBalancePoint } from "@/src/server/savings";
 
 type Point = { dateIso: string; label: string; balanceEur: number };
@@ -26,14 +28,6 @@ function formatTooltipDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
-}
-
-function formatEur(value: number): string {
-  return value.toLocaleString("es-ES", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  });
 }
 
 export function SavingsBalanceChart({ data }: { data: SavingsBalancePoint[] }) {
@@ -79,8 +73,9 @@ export function SavingsBalanceChart({ data }: { data: SavingsBalancePoint[] }) {
             minTickGap={24}
           />
           <YAxis
+            className="sensitive"
             domain={domain}
-            tickFormatter={(v: number) => formatEur(v)}
+            tickFormatter={(v: number) => formatEurCompact(v)}
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             tickLine={false}
             axisLine={false}
@@ -97,13 +92,9 @@ export function SavingsBalanceChart({ data }: { data: SavingsBalancePoint[] }) {
                   <div className="text-muted-foreground">
                     {formatTooltipDate(p.dateIso)}
                   </div>
-                  <div className="tabular-nums font-medium">
-                    {p.balanceEur.toLocaleString("es-ES", {
-                      style: "currency",
-                      currency: "EUR",
-                      minimumFractionDigits: 2,
-                    })}
-                  </div>
+                  <SensitiveValue as="div" className="font-medium">
+                    {formatEur(p.balanceEur)}
+                  </SensitiveValue>
                 </div>
               );
             }}

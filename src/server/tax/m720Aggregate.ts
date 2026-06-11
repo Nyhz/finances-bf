@@ -3,20 +3,32 @@ import { marketEur } from "../../lib/money-types";
 import type { YearEndBalance } from "./report";
 import type { Model720Block } from "./m720";
 
+/** Sentinel country for balances whose account has no countryCode. They must
+ *  not silently escape the 50k/20k checks — they land in a tainted block the
+ *  seal gate refuses without explicit acknowledgement. */
+export const UNKNOWN_COUNTRY = "??";
+
 export function aggregateBlocksFromBalances(balances: YearEndBalance[]): Model720Block[] {
   const map = new Map<string, Model720Block>();
   for (const b of balances) {
-    if (!b.accountCountry) continue;
+    const country = b.accountCountry ?? UNKNOWN_COUNTRY;
     const type: Model720Block["type"] =
       b.assetClassTax === "crypto"
         ? "crypto"
         : b.accountType === "bank" || b.accountType === "savings"
           ? "bank-accounts"
           : "broker-securities";
-    const key = `${b.accountCountry}::${type}`;
+    const key = `${country}::${type}`;
     const cur =
       map.get(key) ??
-      { country: b.accountCountry, type, valueEur: marketEur(0), hasUnvalued: false, hasStale: false };
+      {
+        country,
+        type,
+        valueEur: marketEur(0),
+        hasUnvalued: false,
+        hasStale: false,
+        hasUnknownCountry: country === UNKNOWN_COUNTRY,
+      };
     // Unvalued positions contribute nothing to the sum but taint the block —
     // a silent zero here is exactly what audit T4 forbids.
     cur.valueEur = marketEur(roundEur(cur.valueEur + (b.valueEur ?? 0)));

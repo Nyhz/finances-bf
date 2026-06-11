@@ -17,10 +17,29 @@ describe("aggregateBlocksFromBalances", () => {
     expect(mt?.valueEur).toBeCloseTo(60_000, 2);
   });
 
-  it("skips balances with no country", () => {
+  // Audit fix 3: balances without a country must not silently escape the
+  // threshold checks — they land in a tainted "??" sentinel block.
+  it("routes balances with no country into a tainted '??' sentinel block", () => {
     const blocks = aggregateBlocksFromBalances([
       { accountId: "a", accountName: "X", accountCountry: null, accountType: "broker", assetId: "y", assetName: "VWCE", isin: "IE00BK5BQT80", assetClassTax: "etf", quantity: 1, valueEur: marketEur(100), valuationDate: "2025-12-31", priceSource: "test", unvalued: false, staleValuation: false },
+      { accountId: "b", accountName: "Y", accountCountry: null, accountType: "bank", assetId: "z", assetName: "CASH", isin: null, assetClassTax: "cash", quantity: 1, valueEur: marketEur(500), valuationDate: "2025-12-31", priceSource: "test", unvalued: false, staleValuation: false },
     ]);
-    expect(blocks).toHaveLength(0);
+    expect(blocks).toHaveLength(2);
+    const securities = blocks.find((b) => b.type === "broker-securities");
+    expect(securities?.country).toBe("??");
+    expect(securities?.hasUnknownCountry).toBe(true);
+    expect(securities?.valueEur).toBeCloseTo(100, 2);
+    const bank = blocks.find((b) => b.type === "bank-accounts");
+    expect(bank?.country).toBe("??");
+    expect(bank?.hasUnknownCountry).toBe(true);
+    expect(bank?.valueEur).toBeCloseTo(500, 2);
+  });
+
+  it("does not taint blocks whose account has a country", () => {
+    const blocks = aggregateBlocksFromBalances([
+      { accountId: "a", accountName: "DEGIRO", accountCountry: "NL", accountType: "broker", assetId: "y", assetName: "VWCE", isin: "IE00BK5BQT80", assetClassTax: "etf", quantity: 1, valueEur: marketEur(100), valuationDate: "2025-12-31", priceSource: "test", unvalued: false, staleValuation: false },
+    ]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].hasUnknownCountry).toBe(false);
   });
 });

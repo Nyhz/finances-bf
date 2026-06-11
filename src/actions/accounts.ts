@@ -1,12 +1,14 @@
 "use server";
 
-import { and, desc, eq, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
-import { accounts, auditEvents, fxRates, type Account } from "../db/schema";
+import { accounts, auditEvents, type Account } from "../db/schema";
+import { FxUnavailableError, resolveFxRateSync } from "../lib/fx";
 import { toIsoDate } from "../lib/time";
 import { roundEur } from "../lib/money";
+import { dbFxLookup } from "./_fx";
 
 import {
   ACCOUNT_TYPES,
@@ -56,31 +58,12 @@ export async function createAccount(
 
   try {
     const inserted = db.transaction((tx) => {
-      let rate = 1;
-      let fxSource: "unit" | "historical" | "latest" = "unit";
-      if (currency !== "EUR") {
-        const onDate = tx
-          .select()
-          .from(fxRates)
-          .where(and(eq(fxRates.currency, currency), eq(fxRates.date, today)))
-          .get();
-        if (onDate) {
-          rate = onDate.rateToEur;
-          fxSource = "historical";
-        } else {
-          const latest = tx
-            .select()
-            .from(fxRates)
-            .where(and(eq(fxRates.currency, currency), lte(fxRates.date, today)))
-            .orderBy(desc(fxRates.date))
-            .get();
-          if (!latest) {
-            throw new Error(`No hay tipo de cambio disponible para ${currency} a fecha ${today}`);
-          }
-          rate = latest.rateToEur;
-          fxSource = "latest";
-        }
-      }
+      // Opening balances are estimates, so the stored daily rate is fine
+      // here (no manual-FX requirement) — but resolution still goes through
+      // src/lib/fx.ts, never an ad-hoc lookup. A stale fallback is recorded
+      // as such in the audit context instead of silently passing.
+      const fx = resolveFxRateSync(currency, today, dbFxLookup(tx));
+      const rate = fx.rate;
 
       const openingBalanceEur = roundEur(openingBalanceNative * rate);
       const now = Date.now();
@@ -122,7 +105,8 @@ export async function createAccount(
             openingBalanceNative,
             currency,
             fxRateToEur: rate,
-            fxSource,
+            fxSource: fx.source,
+            fxStale: fx.stale ?? false,
           }),
           createdAt: now,
         })
@@ -135,6 +119,15 @@ export async function createAccount(
 
     return { ok: true, data: inserted };
   } catch (err) {
+    if (err instanceof FxUnavailableError) {
+      return {
+        ok: false,
+        error: {
+          code: "db",
+          message: `No hay tipo de cambio disponible para ${currency} a fecha ${today}`,
+        },
+      };
+    }
     const message = err instanceof Error ? err.message : "Unknown DB error";
     return { ok: false, error: { code: "db", message } };
   }

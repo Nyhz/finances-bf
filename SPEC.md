@@ -66,7 +66,7 @@ Dense, professional, shadcn-first. Rounded cards (`--radius: 0.75rem`), subtle b
 Theme is toggled via `data-theme="light|dark"` on `<html>`, persisted in `localStorage` + cookie (`sb-theme-mode`). A boot script runs `beforeInteractive` to avoid flash.
 
 ### Sensitive mode
-Global blur toggle hides monetary values for screen-sharing. Persisted via `localStorage` + cookie (`sb-sensitive-hidden`), applied as `data-sensitive="hidden|visible"` on `<html>`, realised as a CSS blur filter on `.sensitive` spans. Toggle lives in the top nav.
+Global blur toggle hides monetary values for screen-sharing. Persisted via `localStorage` only, applied as `data-sensitive="hidden|visible"` on `<html>`, realised as a CSS blur filter on `.sensitive` spans. Toggle lives in the top nav. Server-side exports (PDF/XLSX/CSV) intentionally ignore sensitive mode — exporting is an explicit act of extracting the real numbers.
 
 ### Theme tokens (HSL, shadcn convention)
 
@@ -205,7 +205,7 @@ Create (modal, v1 simplified): type selector (buy / sell / dividend / fee / depo
 
 Delete: confirm modal → reverses position and cash balance changes → writes audit event.
 
-Import CSV: supported formats **DEGIRO**, **Binance**, **Cobas**. Flow: pick format → upload file → preview parsed rows (valid / invalid / duplicate) → confirm import. Dedup via `rowFingerprint` (hash of source + external reference + key fields). Auto-creates missing assets based on ISIN/symbol lookup; flags unmapped symbols for manual review. Batch recorded in `transaction_imports` with per-row status.
+Import CSV: **removed 2026-06** (manual entry is the only registration path; see git history for the DEGIRO/Binance/Cobas importers). The dedup discipline survives: every inserted row carries a `rowFingerprint`.
 
 ### 5.5 Taxes
 
@@ -248,9 +248,9 @@ Inline scheduled route, not a separate worker.
 Market FX (`EURUSD=X` from `price_history`) first. Fallback to `fxRateToEur` stored on the originating transaction. Last resort: `1.0` with a warning badge on the row. **This last-resort applies to display valuations only — never to tax data.** Tax-relevant EUR amounts are stamped at entry time via `fx_rates` (precedence in `src/lib/fx.ts`: explicit user/broker rate → exact-date rate → stale-latest rate, flagged via `fxSource`), and entry is rejected when no rate exists at all.
 
 ### Tax-data provenance (hard invariant)
-Values feeding the tax report (`src/server/tax/`) trace to user-entered or broker-CSV transaction data; they are never derived from or backfilled with market quotes. One sanctioned exception, always disclosed:
+Values feeding the tax report (`src/server/tax/`) trace to user-entered transaction data; they are never derived from or backfilled with market quotes. One sanctioned exception, always disclosed:
 
-- **Crypto permutas (Binance crypto↔crypto trades):** both legs are valued at the quote currency's daily close from `fx_rates` (CoinGecko for stablecoins/crypto quotes), per DGT V0999-18 / V1149-20 — there is no user-entered EUR value for these trades. Such rows carry `asset_transactions.valuationBasis = 'market-fx'` and are flagged in the Gains table and the tax detail export.
+- **Crypto permutas (swaps cripto↔cripto, `createSwap`):** both legs are valued at the quote currency's daily close from `fx_rates` (CoinGecko for stablecoins/crypto quotes), per DGT V0999-18 / V1149-20 — there is no user-entered EUR value for these trades. Such rows carry `asset_transactions.valuationBasis = 'market-fx'` and are flagged in the Gains table and the tax detail export.
 - **Year-end balances (M720/M721/D-6):** declared at market value from `asset_valuations` by legal definition. Missing valuations surface as `UNVALUED` (never silent €0); valuations older than 10 days before Dec 31 are flagged stale.
 
 The executable form of this invariant is `src/server/tax/__tests__/market-independence.test.ts`.
@@ -268,7 +268,7 @@ Drizzle schema under `src/db/schema/*.ts`, one file per domain aggregate (accoun
 
 All data access runs through Server Components + Server Actions. There is no HTTP API layer between the UI and the DB — the old `lib/api.ts` wrapper from the monorepo is replaced by direct Drizzle calls in `src/server/`.
 
-Read helpers: `src/server/accounts.ts`, `src/server/assets.ts`, `src/server/transactions.ts`, `src/server/overview.ts`, `src/server/taxes.ts`, `src/server/audit.ts`.
+Read helpers: `src/server/accounts.ts`, `assets.ts`, `transactions.ts`, `overview.ts`, `positions.ts`, `savings.ts`, `statement.ts`, `audit.ts`, plus the tax engine under `src/server/tax/`. The same layer hosts the tx-scoped derived-state recompute engine (`recompute.ts`, `rebuild.ts`, `valuations.ts`, `tax/lots.ts`) — write functions callable only inside an action's transaction.
 
 Mutations: Server Actions in `src/actions/*.ts`, one file per aggregate.
 
@@ -298,19 +298,21 @@ finances/
 │   │   ├── ui/                         # Button, Card, Modal, DataTable, KPICard, charts/*
 │   │   ├── layout/                     # LayoutShell, TopNav, SideNav, Providers
 │   │   └── features/                   # accounts/, assets/, transactions/, overview/, taxes/, audit/
-│   ├── server/                         # Drizzle read helpers
+│   ├── server/                         # Drizzle read helpers + tx-scoped recompute (rebuild.ts)
 │   ├── actions/                        # Server Actions (mutations)
 │   ├── db/
 │   │   ├── client.ts                   # better-sqlite3 + Drizzle init
 │   │   └── schema/
 │   ├── lib/
-│   │   ├── format.ts                   # money formatting, locale
-│   │   ├── display.ts                  # asset type labels
+│   │   ├── domain.ts                   # domain constants + ActionResult types (client-safe)
+│   │   ├── labels.ts                   # Spanish display-label maps (client-safe)
+│   │   ├── format.ts                   # money formatting, locale (es-ES)
+│   │   ├── money.ts                    # roundEur / round — the only sanctioned rounding
 │   │   ├── pagination.ts               # cursor helpers
 │   │   ├── fx.ts                       # FX resolution
-│   │   ├── pricing.ts                  # Yahoo client wrapper
-│   │   ├── imports/                    # degiro.ts, binance.ts, cobas.ts
-│   │   └── pdf/                        # account-statement.ts, tax-report.ts
+│   │   ├── pricing/                    # Yahoo / CoinGecko client wrappers
+│   │   ├── exports/                    # XLSX/CSV builders
+│   │   └── pdf/                        # statement-report.ts, account-statement.ts, tax-report.ts
 │   └── types/                          # shared TS types (ported from @second-brain/types)
 ├── drizzle/                            # migrations
 ├── data/                               # sqlite file (gitignored)

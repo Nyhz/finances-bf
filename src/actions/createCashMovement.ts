@@ -17,6 +17,7 @@ import {
   revalidateCashMovement,
 } from "./_shared";
 import { cashMovementFingerprint } from "./_fingerprint";
+import { roundEur } from "../lib/money";
 import { recomputeAccountCashBalance } from "../server/recompute";
 
 import {
@@ -68,7 +69,7 @@ export async function createCashMovement(
       const sign = signFor(data.kind);
       // Schema guarantees a positive magnitude; `kind` provides the sign.
       const nativeAmount = sign * data.amountNative;
-      const cashImpactEur = Math.round(nativeAmount * rate * 100) / 100;
+      const cashImpactEur = roundEur(nativeAmount * rate);
 
       const occurredAtMs = new Date(`${data.occurredAt}T12:00:00.000Z`).getTime();
       const id = ulid();

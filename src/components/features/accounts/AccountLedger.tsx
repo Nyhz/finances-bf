@@ -12,6 +12,7 @@ import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { deleteCashMovement } from "@/src/actions/deleteCashMovement";
 import { deleteTransaction } from "@/src/actions/deleteTransaction";
 import { formatDateTime, formatEur } from "@/src/lib/format";
+import { ledgerLabel } from "@/src/lib/labels";
 
 type Kind = "transaction" | "cash_movement";
 
@@ -34,32 +35,18 @@ export type AccountLedgerProps = {
 
 type Target = { kind: Kind; id: string; label: string };
 
-// Display-only labels — the stored ledger kinds ("buy", "deposit", …) stay in English.
-const LEDGER_LABELS: Record<string, string> = {
-  buy: "Compra",
-  sell: "Venta",
-  deposit: "Ingreso",
-  withdrawal: "Retirada",
-  dividend: "Dividendo",
-  interest: "Interés",
-  fee: "Comisión",
-  transfer: "Transferencia",
-};
-
-function ledgerLabel(label: string): string {
-  return LEDGER_LABELS[label] ?? label;
-}
-
 function kindVariant(label: string): React.ComponentProps<typeof Badge>["variant"] {
   switch (label) {
     case "buy":
     case "deposit":
     case "dividend":
     case "interest":
+    case "transfer-in":
       return "success";
     case "sell":
     case "withdrawal":
     case "fee":
+    case "transfer-out":
       return "warning";
     default:
       return "neutral";

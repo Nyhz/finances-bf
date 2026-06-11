@@ -10,19 +10,13 @@ import { listTransactions } from "@/src/server/transactions";
 import { listAccounts } from "@/src/server/accounts";
 import { listAssets } from "@/src/server/assets";
 import { formatEur, formatDateTime } from "@/src/lib/format";
+import { transactionTypeLabel } from "@/src/lib/labels";
 import type { AssetTransaction } from "@/src/db/schema";
 import { TransactionsNewButton } from "@/src/components/features/transactions/TransactionsNewButton";
 import { TransactionsExtraActions } from "@/src/components/features/transactions/TransactionsExtraActions";
 import { DeleteTransactionButton } from "@/src/components/features/transactions/DeleteTransactionButton";
 
 type SearchParams = Promise<{ cursor?: string }>;
-
-// Display-only labels — the stored enum values ("buy", "sell", …) stay in English.
-const TRANSACTION_TYPE_LABELS: Record<string, string> = {
-  buy: "Compra",
-  sell: "Venta",
-  dividend: "Dividendo",
-};
 
 export default async function TransactionsPage({
   searchParams,
@@ -109,8 +103,7 @@ export default async function TransactionsPage({
             {
               key: "type",
               header: "Tipo",
-              cell: (r) =>
-                TRANSACTION_TYPE_LABELS[r.transactionType] ?? r.transactionType,
+              cell: (r) => transactionTypeLabel(r.transactionType),
             },
             {
               key: "qty",
@@ -125,7 +118,9 @@ export default async function TransactionsPage({
               header: "Precio",
               align: "right",
               cell: (r) => (
-                <span className="tabular-nums">{r.unitPrice.toFixed(4)}</span>
+                <SensitiveValue className="tabular-nums">
+                  {r.unitPrice.toFixed(4)}
+                </SensitiveValue>
               ),
             },
             {

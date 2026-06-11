@@ -5,7 +5,8 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
-import { rebuildAfterTradeMutation } from "../server/mutations";
+import { rebuildAfterTradeMutation } from "../server/rebuild";
+import { swapFingerprint } from "./_fingerprint";
 import { roundEur } from "../lib/money";
 import { createSwapSchema } from "./createSwap.schema";
 import {
@@ -50,6 +51,31 @@ export async function createSwap(
       // .xx5 value makes screen (Intl) and CSV (toFixed) disagree by a cent.
       const valueEur = roundEur(data.valueEur);
 
+      const fingerprintParts = {
+        accountId: data.accountId,
+        outgoingAssetId: data.outgoingAssetId,
+        incomingAssetId: data.incomingAssetId,
+        tradeDate: data.tradeDate,
+        outgoingQuantity: data.outgoingQuantity,
+        incomingQuantity: data.incomingQuantity,
+        valueEur,
+      };
+      const sellBase = swapFingerprint({ ...fingerprintParts, leg: "sell" });
+      const buyBase = swapFingerprint({ ...fingerprintParts, leg: "buy" });
+      // Two genuinely identical swaps on one day collide on the unique index.
+      // Without the override this is a friendly "duplicate" error; with it,
+      // each leg's fingerprint is salted with its new row id.
+      const collision = tx
+        .select({ id: assetTransactions.id })
+        .from(assetTransactions)
+        .where(eq(assetTransactions.rowFingerprint, sellBase))
+        .get();
+      if (collision && !data.allowDuplicate) {
+        throw new Error(`duplicate swap: ${collision.id}`);
+      }
+      const sellFingerprint = collision ? `${sellBase}:dup:${sellId}` : sellBase;
+      const buyFingerprint = collision ? `${buyBase}:dup:${buyId}` : buyBase;
+
       // Audit H1: swap legs are deliberately EUR-denominated — the user enters
       // the swap's EUR valuation, so the monetary columns hold EUR and must say
       // so. Stamping the asset's currency with fxRateToEur=1 would record a row
@@ -65,6 +91,7 @@ export async function createSwap(
         cashImpactEur: valueEur,
         feesAmount: 0, feesAmountEur: 0, netAmountEur: valueEur,
         linkedTransactionId: buyId,
+        rowFingerprint: sellFingerprint,
         isListed: false, source: "manual",
         notes: data.notes ?? `swap → ${incoming.name}`,
       }).run();
@@ -79,6 +106,7 @@ export async function createSwap(
         cashImpactEur: -valueEur,
         feesAmount: 0, feesAmountEur: 0, netAmountEur: -valueEur,
         linkedTransactionId: sellId,
+        rowFingerprint: buyFingerprint,
         isListed: false, source: "manual",
         notes: data.notes ?? `swap ← ${outgoing.name}`,
       }).run();
@@ -111,6 +139,18 @@ export async function createSwap(
         data.tradeDate,
       );
 
+      const sellRow = tx
+        .select()
+        .from(assetTransactions)
+        .where(eq(assetTransactions.id, sellId))
+        .get();
+      const buyRow = tx
+        .select()
+        .from(assetTransactions)
+        .where(eq(assetTransactions.id, buyId))
+        .get();
+      if (!sellRow || !buyRow) throw new Error("swap insert vanished");
+
       tx.insert(auditEvents).values({
         id: ulid(),
         entityType: "asset_transaction",
@@ -120,7 +160,7 @@ export async function createSwap(
         source: "ui",
         summary: `swap ${data.outgoingQuantity} ${outgoing.name} → ${data.incomingQuantity} ${incoming.name}`,
         previousJson: null,
-        nextJson: JSON.stringify({ sellId, buyId, valueEur }),
+        nextJson: JSON.stringify({ sell: sellRow, buy: buyRow }),
         contextJson: JSON.stringify({ actor: ACTOR }),
         createdAt: Date.now(),
       }).run();
@@ -132,6 +172,16 @@ export async function createSwap(
     return { ok: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
+    if (message.startsWith("duplicate swap")) {
+      return {
+        ok: false,
+        error: {
+          code: "duplicate",
+          message:
+            "Ya existe una permuta idéntica (misma cuenta, activos, fecha, cantidades y valor).",
+        },
+      };
+    }
     if (message.startsWith("tax-lots:")) {
       const friendly = `La parte saliente supera las unidades poseídas en esa fecha (comprobación FIFO): ${message}`;
       return {

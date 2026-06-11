@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
+import { formatEur, formatEurCompact } from "@/src/lib/format";
 
 export type TypePnlRow = {
   assetType: string;
@@ -20,20 +21,6 @@ export type TypePnlRow = {
 
 type TooltipEntry = { payload?: TypePnlRow };
 type ChartTooltipProps = { active?: boolean; payload?: TooltipEntry[] };
-
-function formatMoney(value: number): string {
-  return `${value.toLocaleString("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}€`;
-}
-
-function formatAxisMoney(value: number): string {
-  if (Math.abs(value) >= 1000) {
-    return `€${(value / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 })}k`;
-  }
-  return `€${value.toLocaleString("es-ES", { maximumFractionDigits: 0 })}`;
-}
 
 export function TypePnlChart({ rows }: { rows: TypePnlRow[] }) {
   const renderTooltip = (props: ChartTooltipProps) => {
@@ -44,7 +31,7 @@ export function TypePnlChart({ rows }: { rows: TypePnlRow[] }) {
         <p className="text-xs text-muted-foreground">{assetTypeLabel(p.assetType)}</p>
         <p className="text-sm font-semibold text-foreground">
           <SensitiveValue>
-            {`${p.pnlEur >= 0 ? "+" : ""}${formatMoney(p.pnlEur)}`}
+            {`${p.pnlEur >= 0 ? "+" : ""}${formatEur(p.pnlEur)}`}
           </SensitiveValue>
         </p>
       </div>
@@ -71,12 +58,13 @@ export function TypePnlChart({ rows }: { rows: TypePnlRow[] }) {
         />
         <ReferenceLine x={0} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.55} />
         <XAxis
+          className="sensitive"
           type="number"
           stroke="hsl(var(--muted-foreground))"
           tickLine={false}
           axisLine={false}
           tick={{ fontSize: 12 }}
-          tickFormatter={formatAxisMoney}
+          tickFormatter={formatEurCompact}
         />
         <YAxis
           type="category"

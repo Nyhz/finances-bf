@@ -14,6 +14,9 @@ export const createDividendSchema = z
     withholdingDestinoEur: z.number().finite().nonnegative().default(0),
     sourceCountry: z.string().trim().regex(/^[A-Z]{2}$/).optional(),
     notes: z.string().trim().max(500).optional(),
+    /** A second identical dividend on the same day is flagged as a duplicate;
+     *  pass true to record it anyway (salted fingerprint). */
+    allowDuplicate: z.boolean().default(false),
     /** Audit H3: a manual FX rate >20% off the stored daily rate is rejected as
      *  a probable typo/inverse; pass true to use it anyway. */
     allowFxDeviation: z.boolean().default(false),

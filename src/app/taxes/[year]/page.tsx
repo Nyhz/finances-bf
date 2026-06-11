@@ -40,6 +40,9 @@ export default async function TaxYearPage({ params }: { params: Params }) {
   const hasUnvalued = [...models.m720.blocks, ...models.m721.blocks].some(
     (b) => b.hasUnvalued,
   );
+  const hasUnknownCountry = [...models.m720.blocks, ...models.m721.blocks].some(
+    (b) => b.hasUnknownCountry,
+  );
 
   return (
     <div className="flex flex-col gap-6 p-8">
@@ -48,14 +51,16 @@ export default async function TaxYearPage({ params }: { params: Params }) {
         availableYears={years}
         sealed={snapshot != null}
         hasUnvalued={hasUnvalued}
+        hasUnknownCountry={hasUnknownCountry}
       />
       {snapshotState.status === "corrupt" ? (
         <div
           role="alert"
           className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          The sealed snapshot for {year} is unreadable — showing LIVE numbers, which may
-          differ from what was filed. Check the audit log and re-seal once resolved.
+          La instantánea sellada de {year} es ilegible — se muestran cifras EN VIVO, que
+          pueden diferir de lo presentado. Revisa el registro de auditoría y vuelve a
+          sellar cuando esté resuelto.
         </div>
       ) : null}
       {drift ? <DriftBanner drift={drift} /> : null}

@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
+import { formatEur, formatEurCompact } from "@/src/lib/format";
 import type { NetWorthPoint } from "@/src/server/overview";
 
 type Point = {
@@ -35,20 +36,6 @@ function formatTooltipDate(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-function formatMoney(value: number): string {
-  return `${value.toLocaleString("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}€`;
-}
-
-function formatAxisMoney(value: number): string {
-  if (Math.abs(value) >= 1000) {
-    return `€${(value / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 })}k`;
-  }
-  return `€${value.toLocaleString("es-ES", { maximumFractionDigits: 0 })}`;
-}
-
 export function StatementValueChart({ data }: { data: NetWorthPoint[] }) {
   const points: Point[] = useMemo(
     () =>
@@ -69,10 +56,10 @@ export function StatementValueChart({ data }: { data: NetWorthPoint[] }) {
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
         <p className="text-xs text-muted-foreground">{formatTooltipDate(p.dateIso)}</p>
         <p className="text-sm font-semibold text-foreground">
-          Valor: <SensitiveValue>{formatMoney(p.valueEur)}</SensitiveValue>
+          Valor: <SensitiveValue>{formatEur(p.valueEur)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
-          Invertido: <SensitiveValue>{formatMoney(p.investedEur)}</SensitiveValue>
+          Invertido: <SensitiveValue>{formatEur(p.investedEur)}</SensitiveValue>
         </p>
       </div>
     );
@@ -103,11 +90,12 @@ export function StatementValueChart({ data }: { data: NetWorthPoint[] }) {
             minTickGap={32}
           />
           <YAxis
+            className="sensitive"
             stroke="hsl(var(--muted-foreground))"
             tickLine={false}
             axisLine={false}
             tick={{ fontSize: 12 }}
-            tickFormatter={formatAxisMoney}
+            tickFormatter={formatEurCompact}
             width={64}
             domain={["auto", "auto"]}
           />

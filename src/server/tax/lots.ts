@@ -1,6 +1,6 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
-import type { db, DB } from "../../db/client";
+import type { DbOrTx } from "../../db/client";
 import { roundEur } from "../../lib/money";
 import {
   assetTransactions,
@@ -15,11 +15,6 @@ import {
   washSaleWindowForAssetClass,
 } from "./washSale";
 
-// Accepts either a top-level DB handle or a Drizzle transaction handle.
-// Using the parameter type of the transaction callback avoids importing the
-// heavy BetterSQLite3Database type and makes this callable from inside tx.
-type Tx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
-type DbOrTx = DB | Tx;
 
 type MutableLot = {
   id: string;

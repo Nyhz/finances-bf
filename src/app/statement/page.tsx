@@ -14,6 +14,7 @@ import { StatementValueChart } from "@/src/components/features/statement/Stateme
 import { TypePnlChart } from "@/src/components/features/statement/TypePnlChart";
 import { cn } from "@/src/lib/cn";
 import { formatDateTime, formatEur, formatPercent } from "@/src/lib/format";
+import { accountTypeLabel } from "@/src/lib/labels";
 import {
   OVERVIEW_RANGES,
   getNetWorthSeries,
@@ -55,15 +56,6 @@ function RangeTabs({ range }: { range: OverviewRange }) {
     </div>
   );
 }
-
-// Display-only labels — raw accountType values stay English in the DB.
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  broker: "Bróker",
-  investment: "Inversión",
-  crypto: "Cripto",
-  savings: "Efectivo",
-  bank: "Banco",
-};
 
 function KpiRow({ report }: { report: StatementReport }) {
   const { totals } = report;
@@ -151,7 +143,7 @@ function AccountsTable({ accounts }: { accounts: StatementAccountLine[] }) {
             <div className="flex flex-col">
               <span className="font-medium">{a.name}</span>
               <span className="text-xs text-muted-foreground">
-                {ACCOUNT_TYPE_LABELS[a.accountType] ?? a.accountType} · {a.currency}
+                {accountTypeLabel(a.accountType)} · {a.currency}
               </span>
             </div>
           ),

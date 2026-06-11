@@ -7,6 +7,7 @@ import { Badge } from "@/src/components/ui/Badge";
 import { Button } from "@/src/components/ui/Button";
 import { ConfirmModal } from "@/src/components/ui/ConfirmModal";
 import { DataTable } from "@/src/components/ui/DataTable";
+import { assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
 import { deactivateAsset } from "@/src/actions/deactivateAsset";
 import { deleteAsset } from "@/src/actions/deleteAsset";
 import type { Asset } from "@/src/db/schema";
@@ -15,17 +16,6 @@ import { EditAssetModal } from "./EditAssetModal";
 import { SetManualPriceModal } from "./SetManualPriceModal";
 
 type ModalKind = "edit" | "price" | "deactivate" | "delete" | null;
-
-// Display-only labels — the stored assetType values stay in English.
-const ASSET_TYPE_LABELS: Record<string, string> = {
-  etf: "ETF",
-  stock: "Acción",
-  bond: "Bono",
-  crypto: "Cripto",
-  fund: "Fondo",
-  "cash-equivalent": "Equivalente de efectivo",
-  other: "Otro",
-};
 
 function FreshnessCell({ row }: { row: AssetListRow }) {
   const f = row.freshness;
@@ -93,7 +83,7 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
           {
             key: "type",
             header: "Tipo",
-            cell: (r) => ASSET_TYPE_LABELS[r.assetType] ?? r.assetType,
+            cell: (r) => assetTypeLabel(r.assetType),
           },
           { key: "currency", header: "Divisa", cell: (r) => r.currency },
           {

@@ -9,16 +9,9 @@ import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { deleteAccount } from "@/src/actions/deleteAccount";
 import { formatEur, formatMoney } from "@/src/lib/format";
+import { accountTypeLabel } from "@/src/lib/labels";
 import type { AccountWithTotals } from "@/src/server/accounts";
 import { isCashBearingAccount } from "@/src/actions/_constants";
-
-// Display-only labels — the stored accountType values stay in English.
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  broker: "Bróker",
-  crypto: "Cripto",
-  investment: "Inversión",
-  savings: "Efectivo",
-};
 
 export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
   const [target, setTarget] = React.useState<AccountWithTotals | null>(null);
@@ -53,7 +46,7 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
           {
             key: "type",
             header: "Tipo",
-            cell: (r) => ACCOUNT_TYPE_LABELS[r.accountType] ?? r.accountType,
+            cell: (r) => accountTypeLabel(r.accountType),
           },
           { key: "currency", header: "Divisa", cell: (r) => r.currency },
           {

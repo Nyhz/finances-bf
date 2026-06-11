@@ -3,6 +3,7 @@ import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { formatEur } from "@/src/lib/format";
+import { cashMovementLabel } from "@/src/lib/labels";
 import type { AccountCashMovement } from "@/src/db/schema";
 
 function formatDate(ms: number): string {
@@ -14,20 +15,8 @@ function formatDate(ms: number): string {
   });
 }
 
-// Display-only labels — the raw movementType values stay English in the DB.
-const TYPE_LABELS: Record<string, string> = {
-  deposit: "Ingreso",
-  withdrawal: "Retirada",
-  interest: "Intereses",
-  fee: "Comisión",
-  dividend: "Dividendo",
-  trade: "Operación",
-  "transfer-in": "Transferencia recibida",
-  "transfer-out": "Transferencia enviada",
-};
-
 function badgeForType(type: string) {
-  const label = TYPE_LABELS[type] ?? type;
+  const label = cashMovementLabel(type);
   const color =
     type === "deposit" || type === "interest"
       ? "text-success"

@@ -6,12 +6,10 @@ import {
   assetPositions,
   assetTransactions,
 } from "../db/schema";
-import { isCashBearingAccount } from "../actions/_shared";
-import { round } from "../lib/money";
+import { isCashBearingAccount } from "../lib/domain";
+import { round, roundEur } from "../lib/money";
 
-// Drizzle better-sqlite3 tx handle type. We keep it loose to avoid a circular
-// import with the generated schema type — all calls here are schema-typed.
-type Tx = Parameters<Parameters<typeof import("../db/client").db.transaction>[0]>[0];
+import type { Tx } from "../db/client";
 
 /**
  * Recompute the (global) asset_positions row by walking every asset_transactions
@@ -144,7 +142,7 @@ export function recomputeAccountCashBalance(tx: Tx, accountId: string): void {
     .get();
 
   const movements = sumRow?.total ?? 0;
-  const next = Math.round((account.openingBalanceEur + movements) * 100) / 100;
+  const next = roundEur(account.openingBalanceEur + movements);
 
   tx
     .update(accounts)

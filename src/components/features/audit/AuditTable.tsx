@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/src/lib/cn";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import type { AuditEvent } from "@/src/db/schema";
 import { formatDateTime } from "@/src/lib/format";
 
@@ -82,7 +83,7 @@ function DiffView({
                   changed && prevHas && "text-destructive",
                 )}
               >
-                {prevHas ? renderValue(prevVal) : "—"}
+                <SensitiveValue>{prevHas ? renderValue(prevVal) : "—"}</SensitiveValue>
               </div>
               <div
                 className={cn(
@@ -90,7 +91,7 @@ function DiffView({
                   changed && nextHas && "text-success",
                 )}
               >
-                {nextHas ? renderValue(nextVal) : "—"}
+                <SensitiveValue>{nextHas ? renderValue(nextVal) : "—"}</SensitiveValue>
               </div>
             </div>
           );

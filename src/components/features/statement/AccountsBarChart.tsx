@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
+import { formatEur, formatEurCompact } from "@/src/lib/format";
 
 export type AccountBarRow = {
   name: string;
@@ -20,20 +21,6 @@ export type AccountBarRow = {
 type TooltipEntry = { payload?: AccountBarRow };
 type ChartTooltipProps = { active?: boolean; payload?: TooltipEntry[] };
 
-function formatMoney(value: number): string {
-  return `${value.toLocaleString("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}€`;
-}
-
-function formatAxisMoney(value: number): string {
-  if (Math.abs(value) >= 1000) {
-    return `€${(value / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 })}k`;
-  }
-  return `€${value.toLocaleString("es-ES", { maximumFractionDigits: 0 })}`;
-}
-
 export function AccountsBarChart({ rows }: { rows: AccountBarRow[] }) {
   const renderTooltip = (props: ChartTooltipProps) => {
     const p = props.payload?.[0]?.payload;
@@ -42,13 +29,13 @@ export function AccountsBarChart({ rows }: { rows: AccountBarRow[] }) {
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
         <p className="text-xs text-muted-foreground">{p.name}</p>
         <p className="text-sm font-semibold text-foreground">
-          Invertido: <SensitiveValue>{formatMoney(p.investedEur)}</SensitiveValue>
+          Invertido: <SensitiveValue>{formatEur(p.investedEur)}</SensitiveValue>
         </p>
         <p className="text-sm font-semibold text-foreground">
-          Efectivo: <SensitiveValue>{formatMoney(p.cashEur)}</SensitiveValue>
+          Efectivo: <SensitiveValue>{formatEur(p.cashEur)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
-          Total: <SensitiveValue>{formatMoney(p.investedEur + p.cashEur)}</SensitiveValue>
+          Total: <SensitiveValue>{formatEur(p.investedEur + p.cashEur)}</SensitiveValue>
         </p>
       </div>
     );
@@ -67,12 +54,13 @@ export function AccountsBarChart({ rows }: { rows: AccountBarRow[] }) {
             horizontal={false}
           />
           <XAxis
+            className="sensitive"
             type="number"
             stroke="hsl(var(--muted-foreground))"
             tickLine={false}
             axisLine={false}
             tick={{ fontSize: 12 }}
-            tickFormatter={formatAxisMoney}
+            tickFormatter={formatEurCompact}
           />
           <YAxis
             type="category"

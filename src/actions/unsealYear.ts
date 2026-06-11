@@ -28,7 +28,9 @@ export async function unsealYear(
         actorType: "user",
         source: "ui",
         summary: `unsealed year ${year}`,
-        previousJson: JSON.stringify({ snapshotId: existing.id }),
+        // Full row (payloadJson, sealedAt, notes): the frozen filed numbers
+        // must stay recoverable from the audit trail after the unseal.
+        previousJson: JSON.stringify(existing),
         nextJson: null,
         contextJson: JSON.stringify({ actor: ACTOR }),
         createdAt: Date.now(),

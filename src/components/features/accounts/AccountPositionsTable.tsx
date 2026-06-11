@@ -64,7 +64,9 @@ export function AccountPositionsTable({ rows }: { rows: PositionRow[] }) {
               if (r.valuationEur == null) {
                 return <span className="text-muted-foreground">—</span>;
               }
-              const pnl = r.valuationEur - r.position.quantity * r.position.averageCost;
+              // Stored cost pool, not quantity × pre-rounded average — keeps
+              // this table in lockstep with overview and statement.
+              const pnl = r.valuationEur - r.position.totalCostEur;
               const color =
                 pnl > 0 ? "text-success" : pnl < 0 ? "text-destructive" : "";
               return (

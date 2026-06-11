@@ -1,16 +1,9 @@
 import { Badge } from "@/src/components/ui/Badge";
 import { KPICard } from "@/src/components/ui/KPICard";
 import { formatEur } from "@/src/lib/format";
+import { accountTypeLabel } from "@/src/lib/labels";
 import type { Account } from "@/src/db/schema";
 import { isCashBearingAccount } from "@/src/actions/_constants";
-
-// Display-only labels — the stored accountType values stay in English.
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  broker: "Bróker",
-  crypto: "Cripto",
-  investment: "Inversión",
-  savings: "Efectivo",
-};
 
 export type AccountHeaderProps = {
   account: Account;
@@ -29,9 +22,7 @@ export function AccountHeader({
         <div className="flex flex-col gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">{account.name}</h1>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>
-              {ACCOUNT_TYPE_LABELS[account.accountType] ?? account.accountType}
-            </span>
+            <span>{accountTypeLabel(account.accountType)}</span>
             <span aria-hidden>·</span>
             <Badge variant="neutral">{account.currency}</Badge>
           </div>

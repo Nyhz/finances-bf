@@ -10,11 +10,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
+import { formatEur, formatEurCompact } from "@/src/lib/format";
 
 export type AccountPerformancePoint = {
   date: string;
   balanceEur: number;
 };
+
+function formatLabel(iso: string): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return d.toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function formatTooltipDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
 
 export function AccountPerformanceChart({
   data,
@@ -32,21 +48,36 @@ export function AccountPerformanceChart({
             fontSize={12}
             tickLine={false}
             axisLine={false}
+            tickFormatter={formatLabel}
+            minTickGap={24}
           />
           <YAxis
+            className="sensitive"
             stroke="hsl(var(--muted-foreground))"
             fontSize={12}
             tickLine={false}
             axisLine={false}
+            tickFormatter={formatEurCompact}
             domain={["auto", "auto"]}
           />
           <Tooltip
-            contentStyle={{
-              background: "hsl(var(--card))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "0.5rem",
-              color: "hsl(var(--foreground))",
-              fontSize: "0.75rem",
+            cursor={{ stroke: "hsl(var(--border))" }}
+            content={(props) => {
+              if (!props.active || !props.payload?.length) return null;
+              const p = props.payload[0]?.payload as
+                | AccountPerformancePoint
+                | undefined;
+              if (!p) return null;
+              return (
+                <div className="rounded-md border border-border bg-background/90 px-3 py-2 text-xs shadow-sm">
+                  <div className="text-muted-foreground">
+                    {formatTooltipDate(p.date)}
+                  </div>
+                  <SensitiveValue as="div" className="font-medium">
+                    {formatEur(p.balanceEur)}
+                  </SensitiveValue>
+                </div>
+              );
             }}
           />
           <Line

@@ -31,7 +31,7 @@ For everything outside the generator's footprint (`better-sqlite3`, `drizzle-orm
 
 - **TypeScript strict**. No `any` without a one-line comment explaining why.
 - Prefer `type` over `interface` for data shapes. Infer Drizzle row types from schema (`typeof table.$inferSelect`) — never hand-duplicate.
-- **One source of truth per aggregate.** Read helpers in `src/server/`, mutations in `src/actions/`. See SPEC §7.
+- **One source of truth per aggregate.** Read helpers in `src/server/`, mutations in `src/actions/`. `src/server/` also hosts the tx-scoped derived-state recompute engine (`recompute.ts`, `rebuild.ts`, `valuations.ts`, `tax/lots.ts`) — write functions, but only callable inside an action's transaction. See SPEC §7.
 - **No raw SQL in app code.** Drizzle query builder only. Schema migrations are the one exception and live under `drizzle/`.
 - **Never edit past migrations.** Generate a new one.
 - **ULID for all new ids.** Never autoincrement.
@@ -68,9 +68,9 @@ Position and cash-balance recomputation is part of the transaction that inserts 
 
 ---
 
-## Imports and Pricing
+## Data Entry and Pricing
 
-CSV import parsers live in `src/lib/imports/{degiro,binance,cobas}.ts` — one file per format, pure functions, fixture-tested. Dedup is the parser's responsibility: every parsed row carries a `rowFingerprint` (see SPEC §5.4). Do not insert a row without one.
+The CSV importer subsystem was removed (2026-06; manual entry is the only registration path). Dedup discipline survives it: every inserted `asset_transactions` / `account_cash_movements` row carries a `rowFingerprint` (see SPEC §5.4). Do not insert a row without one.
 
 The Yahoo client is wrapped in `src/lib/pricing.ts`. Tests must stub it — no real network calls in the test suite. The cron route (`src/app/api/cron/sync-prices/route.ts`) is gated by `CRON_SECRET` and must be idempotent within a calendar day. See SPEC §6.
 

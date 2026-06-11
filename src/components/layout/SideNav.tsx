@@ -67,7 +67,7 @@ export function SideNav() {
 
   return (
     <nav
-      aria-label="Primary"
+      aria-label="Navegación principal"
       className="hidden h-full w-56 shrink-0 flex-col border-r border-border bg-background md:flex"
     >
       <ul className="flex flex-col gap-0.5 p-3">

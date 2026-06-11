@@ -9,9 +9,17 @@ type Props = {
   sealed: boolean;
   /** Foreign M720/M721 blocks contain unvalued positions — sealing needs an explicit acknowledgement. */
   hasUnvalued?: boolean;
+  /** M720/M721 blocks contain balances from accounts without country — same explicit gate. */
+  hasUnknownCountry?: boolean;
 };
 
-export function TaxesHeader({ year, availableYears, sealed, hasUnvalued = false }: Props) {
+export function TaxesHeader({
+  year,
+  availableYears,
+  sealed,
+  hasUnvalued = false,
+  hasUnknownCountry = false,
+}: Props) {
   const years = [...new Set([year, ...availableYears])].sort((a, b) => b - a);
   return (
     <header className="flex flex-wrap items-center justify-between gap-3">
@@ -39,7 +47,11 @@ export function TaxesHeader({ year, availableYears, sealed, hasUnvalued = false 
         {sealed ? (
           <UnsealYearButton year={year} />
         ) : (
-          <SealYearButton year={year} hasUnvalued={hasUnvalued} />
+          <SealYearButton
+            year={year}
+            hasUnvalued={hasUnvalued}
+            hasUnknownCountry={hasUnknownCountry}
+          />
         )}
         <ExportMenu year={year} />
       </div>

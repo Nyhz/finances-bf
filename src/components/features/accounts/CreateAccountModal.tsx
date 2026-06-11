@@ -5,14 +5,7 @@ import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { createAccount } from "@/src/actions/accounts";
 import { ACCOUNT_TYPES } from "@/src/actions/_constants";
-
-// Display-only labels — the submitted accountType values stay in English.
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  broker: "Bróker",
-  crypto: "Cripto",
-  investment: "Inversión",
-  savings: "Efectivo",
-};
+import { accountTypeLabel } from "@/src/lib/labels";
 
 type FormState = {
   name: string;
@@ -119,12 +112,12 @@ export function CreateAccountModal({
           >
             {ACCOUNT_TYPES.map((t) => (
               <option key={t} value={t}>
-                {ACCOUNT_TYPE_LABELS[t] ?? t}
+                {accountTypeLabel(t)}
               </option>
             ))}
           </select>
           <span className="text-xs text-muted-foreground">
-            Solo «Efectivo» mantiene saldo en metálico. Bróker, cripto e
+            Solo «Ahorro» mantiene saldo en metálico. Bróker, cripto e
             inversión contienen únicamente posiciones: el dinero de las ventas
             no se acumula en ellas.
           </span>

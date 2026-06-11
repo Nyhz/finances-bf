@@ -95,9 +95,3 @@ export async function getPositionsByAccount(
 }
 
 export const getPositionsForAccount = getPositionsByAccount;
-
-// Re-export a lightweight helper for other server modules that just need totals.
-export async function sumValuationsEur(db: DB = defaultDb): Promise<number> {
-  const rows = await listPositions(db);
-  return rows.reduce((acc, r) => acc + (r.valuationEur ?? 0), 0);
-}

@@ -42,8 +42,11 @@ export async function deleteCashMovement(
         .where(eq(accountCashMovements.id, id))
         .get();
       if (!previous) throw new Error(`cash movement not found: ${id}`);
-      if (previous.movementType === "trade") {
-        throw new Error("trade cash movements are deleted via deleteTransaction");
+      // A non-null externalReference marks the cash shadow of an
+      // asset_transactions row (trade, dividend, swap) — it lives and dies
+      // with the originating transaction, never on its own.
+      if (previous.externalReference != null) {
+        throw new Error("paired cash movements are deleted via deleteTransaction");
       }
 
       tx.delete(accountCashMovements).where(eq(accountCashMovements.id, id)).run();
@@ -79,13 +82,13 @@ export async function deleteCashMovement(
         error: { code: "not_found", message: "movimiento de efectivo no encontrado" },
       };
     }
-    if (message.startsWith("trade cash movements")) {
+    if (message.startsWith("paired cash movements")) {
       return {
         ok: false,
         error: {
           code: "conflict",
           message:
-            "Los movimientos de efectivo de una operación se eliminan borrando la transacción.",
+            "Este movimiento es el reflejo de caja de una transacción — elimina la transacción original.",
         },
       };
     }

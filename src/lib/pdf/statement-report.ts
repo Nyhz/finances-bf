@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { StatementReport } from "../../server/statement";
+import { accountTypeLabel } from "../labels";
 import {
   ACCENT,
   BAND,
@@ -50,14 +51,6 @@ function fmtPct(ratio: number | null): string {
 }
 
 const truncate = (t: string, max: number) => (t.length > max ? `${t.slice(0, max - 1)}…` : t);
-
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  broker: "Bróker",
-  investment: "Inversión",
-  crypto: "Cripto",
-  savings: "Efectivo",
-  bank: "Banco",
-};
 
 export function buildStatementReportPdf(
   report: StatementReport,
@@ -297,7 +290,7 @@ export function buildStatementReportPdf(
     doc.setFontSize(8);
     doc.text(truncate(account.name, 40), M, cur.y);
     text(doc, MUTED);
-    doc.text(ACCOUNT_TYPE_LABELS[account.accountType] ?? account.accountType, M + 200, cur.y);
+    doc.text(accountTypeLabel(account.accountType), M + 200, cur.y);
     text(doc, INK);
     doc.text(fmtEur(account.cashEur), M + 360, cur.y, { align: "right" });
     doc.text(fmtEur(account.investedEur), M + 450, cur.y, { align: "right" });

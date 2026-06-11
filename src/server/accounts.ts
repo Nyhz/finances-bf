@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, dailyBalances, type Account, type DailyBalance } from "../db/schema";
-import { isCashBearingAccount } from "../actions/_shared";
+import { isCashBearingAccount } from "../lib/domain";
 
 export type AccountWithTotals = Account & {
   totalBalanceEur: number;

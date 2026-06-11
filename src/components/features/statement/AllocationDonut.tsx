@@ -3,6 +3,7 @@
 import { Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { AssetTypeBadge, assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
+import { formatEur } from "@/src/lib/format";
 
 export type AllocationSlice = {
   assetType: string;
@@ -12,13 +13,6 @@ export type AllocationSlice = {
 
 type TooltipEntry = { payload?: AllocationSlice };
 type ChartTooltipProps = { active?: boolean; payload?: TooltipEntry[] };
-
-function formatMoney(value: number): string {
-  return `${value.toLocaleString("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}€`;
-}
 
 function sliceColor(index: number): string {
   return `hsl(var(--chart-${(index % 5) + 1}))`;
@@ -38,7 +32,7 @@ export function AllocationDonut({
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
         <p className="text-xs text-muted-foreground">{assetTypeLabel(p.assetType)}</p>
         <p className="text-sm font-semibold text-foreground">
-          <SensitiveValue>{formatMoney(p.valueEur)}</SensitiveValue>
+          <SensitiveValue>{formatEur(p.valueEur)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
           {(p.weight * 100).toFixed(1)}% de lo invertido
@@ -67,10 +61,10 @@ export function AllocationDonut({
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">
-            Invested
+            Invertido
           </span>
           <SensitiveValue className="text-lg font-semibold tracking-tight">
-            {formatMoney(totalEur)}
+            {formatEur(totalEur)}
           </SensitiveValue>
         </div>
       </div>
@@ -87,7 +81,7 @@ export function AllocationDonut({
               {(slice.weight * 100).toFixed(1)}%
             </span>
             <SensitiveValue className="w-28 text-right text-sm font-medium">
-              {formatMoney(slice.valueEur)}
+              {formatEur(slice.valueEur)}
             </SensitiveValue>
           </li>
         ))}

@@ -24,7 +24,9 @@ function makeDb(): DB {
 
 function seedBuy(db: DB) {
   const accountId = ulid(); const assetId = ulid();
-  db.insert(accounts).values({ id: accountId, name: "DEGIRO", currency: "EUR", accountType: "broker", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
+  // countryCode ES: domestic balances are exempt from the M720 gates — keeps
+  // these base tests focused on the seal mechanics themselves.
+  db.insert(accounts).values({ id: accountId, name: "DEGIRO", currency: "EUR", accountType: "broker", countryCode: "ES", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
   db.insert(assets).values({ id: assetId, name: "VWCE", assetType: "equity", currency: "EUR", isActive: true, assetClassTax: "etf" }).run();
   db.insert(assetTransactions).values({
     id: ulid(), accountId, assetId,
@@ -122,5 +124,73 @@ describe("sealYear unvalued-balance gate", () => {
     seedForeignBuy(db, true);
     const res = await sealYear({ year: 2025 }, db);
     expect(res.ok).toBe(true);
+  });
+});
+
+// Audit fix 3: balances from accounts without a country land in the "??"
+// sentinel block — sealing them needs the same explicit acknowledgement as
+// unvalued balances.
+describe("sealYear unknown-country gate", () => {
+  function seedCountrylessBuy(db: DB) {
+    const accountId = ulid(); const assetId = ulid();
+    db.insert(accounts).values({
+      id: accountId, name: "MYSTERY", currency: "EUR",
+      accountType: "broker", // no countryCode
+      openingBalanceEur: 0, currentCashBalanceEur: 0,
+    }).run();
+    db.insert(assets).values({
+      id: assetId, name: "VWCE", assetType: "equity",
+      currency: "EUR", isActive: true, assetClassTax: "etf",
+    }).run();
+    db.insert(assetTransactions).values({
+      id: ulid(), accountId, assetId,
+      transactionType: "buy", tradedAt: Date.UTC(2025, 0, 1),
+      quantity: 10, unitPrice: 100, tradeCurrency: "EUR", fxRateToEur: 1,
+      tradeGrossAmount: 1000, tradeGrossAmountEur: 1000, cashImpactEur: -1000,
+      feesAmount: 0, feesAmountEur: 0, netAmountEur: -1000,
+      isListed: true, source: "manual",
+    }).run();
+    // Valued, so only the unknown-country gate fires.
+    db.insert(schema.assetValuations).values({
+      id: ulid(), assetId, valuationDate: "2025-12-31",
+      quantity: 10, unitPriceEur: 110, marketValueEur: 1100,
+      priceSource: "test", createdAt: Date.now(),
+    }).run();
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+  }
+
+  it("refuses to seal when a block comes from accounts without a country", async () => {
+    const db = makeDb();
+    seedCountrylessBuy(db);
+    const res = await sealYear({ year: 2025 }, db);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("conflict");
+      expect(res.error.message).toMatch(/sin país asignado/);
+      expect(res.error.message).toMatch(/\?\?/);
+    }
+    expect(db.select().from(taxYearSnapshots).all()).toHaveLength(0);
+  });
+
+  it("seals with explicit acknowledgement of the unknown country", async () => {
+    const db = makeDb();
+    seedCountrylessBuy(db);
+    const res = await sealYear({ year: 2025, acknowledgeUnknownCountry: true }, db);
+    expect(res.ok).toBe(true);
+    const row = db.select().from(taxYearSnapshots).all()[0];
+    expect(row).toBeDefined();
+    // The sentinel block is persisted in the sealed payload, tainted.
+    const payload = JSON.parse(row!.payloadJson) as {
+      m720: { blocks: Array<{ country: string; hasUnknownCountry?: boolean }> };
+    };
+    const sentinel = payload.m720.blocks.find((b) => b.country === "??");
+    expect(sentinel?.hasUnknownCountry).toBe(true);
+  });
+
+  it("acknowledging unvalued alone does not bypass the unknown-country gate", async () => {
+    const db = makeDb();
+    seedCountrylessBuy(db);
+    const res = await sealYear({ year: 2025, acknowledgeUnvalued: true }, db);
+    expect(res.ok).toBe(false);
   });
 });

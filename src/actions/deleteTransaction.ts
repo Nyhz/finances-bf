@@ -10,7 +10,7 @@ import {
   type ActionResult,
   revalidateTradeMutation,
 } from "./_shared";
-import { rebuildAfterTradeMutation } from "../server/mutations";
+import { rebuildAfterTradeMutation } from "../server/rebuild";
 
 import { deleteTransactionSchema } from "./deleteTransaction.schema";
 
@@ -119,6 +119,14 @@ export async function deleteTransaction(
     const message = err instanceof Error ? err.message : "Unknown DB error";
     if (message.startsWith("transaction not found")) {
       return { ok: false, error: { code: "not_found", message: "transacción no encontrada" } };
+    }
+    if (message.startsWith("tax-lots:")) {
+      // FIFO replay aborts when removing this buy would leave a later sell
+      // without units to consume — surface it as a validation error, not a
+      // raw English db error.
+      const friendly =
+        "No se puede eliminar esta compra: ventas posteriores dependen de sus unidades (comprobación FIFO).";
+      return { ok: false, error: { code: "validation", message: friendly } };
     }
     return { ok: false, error: { code: "db", message } };
   }

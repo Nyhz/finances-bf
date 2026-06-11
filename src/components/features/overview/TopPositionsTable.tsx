@@ -3,18 +3,13 @@ import { Card } from "@/src/components/ui/Card";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
-import { formatEur, formatPercent } from "@/src/lib/format";
+import { formatEur, formatPercent, formatQuantity } from "@/src/lib/format";
 import type { TopPositionRow } from "@/src/server/overview";
 import { PositionSparkline } from "./PositionSparkline";
 
 function formatUnit(value: number | null): string {
   if (value == null) return "—";
-  return value.toLocaleString("es-ES", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  });
+  return formatEur(value, { maximumFractionDigits: 4 });
 }
 
 export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
@@ -63,7 +58,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
               const isCrypto = r.position.asset.assetType === "crypto";
               return (
                 <span className="tabular-nums">
-                  {r.position.position.quantity.toLocaleString("es-ES", {
+                  {formatQuantity(r.position.position.quantity, {
                     maximumFractionDigits: isCrypto ? 8 : 4,
                   })}
                 </span>

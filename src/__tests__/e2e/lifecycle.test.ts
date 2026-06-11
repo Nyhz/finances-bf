@@ -130,7 +130,17 @@ describe("e2e — lifecycle: deleteTransaction / wipeApp", () => {
       db.select().from(schema.taxWashSaleAdjustments).all(),
     ).toHaveLength(0);
     expect(db.select().from(schema.taxYearSnapshots).all()).toHaveLength(0);
-    expect(db.select().from(schema.auditEvents).all()).toHaveLength(0);
     expect(db.select().from(schema.fxRates).all()).toHaveLength(0);
+
+    // The wipe leaves exactly one trace: a terminal audit event with the
+    // per-table row counts captured before deletion.
+    const audit = db.select().from(schema.auditEvents).all();
+    expect(audit).toHaveLength(1);
+    expect(audit[0].action).toBe("wipe");
+    const context = JSON.parse(audit[0].contextJson!) as {
+      deletedRowCounts: Record<string, number>;
+    };
+    expect(context.deletedRowCounts.asset_transactions).toBe(2);
+    expect(context.deletedRowCounts.accounts).toBeGreaterThan(0);
   });
 });

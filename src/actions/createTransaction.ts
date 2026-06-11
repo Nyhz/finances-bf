@@ -19,7 +19,7 @@ import {
   revalidateTradeMutation,
 } from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
-import { rebuildAfterTradeMutation } from "../server/mutations";
+import { rebuildAfterTradeMutation } from "../server/rebuild";
 import { FxDeviationError, FxManualRequiredError, requireManualFx } from "./_fx";
 import { round as roundNative, roundEur as round } from "../lib/money";
 

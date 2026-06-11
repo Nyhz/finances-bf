@@ -5,18 +5,8 @@ import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { updateAsset } from "@/src/actions/updateAsset";
 import { ASSET_TYPES } from "@/src/actions/_constants";
+import { assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
 import type { Asset } from "@/src/db/schema";
-
-// Display-only labels — the submitted assetType values stay in English.
-const ASSET_TYPE_LABELS: Record<string, string> = {
-  etf: "ETF",
-  stock: "Acción",
-  bond: "Bono",
-  crypto: "Cripto",
-  fund: "Fondo",
-  "cash-equivalent": "Equivalente de efectivo",
-  other: "Otro",
-};
 
 type FormState = {
   name: string;
@@ -150,7 +140,7 @@ export function EditAssetModal({
           >
             {ASSET_TYPES.map((t) => (
               <option key={t} value={t}>
-                {ASSET_TYPE_LABELS[t] ?? t}
+                {assetTypeLabel(t)}
               </option>
             ))}
           </select>

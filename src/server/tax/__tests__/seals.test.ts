@@ -25,7 +25,8 @@ function makeDb(): DB {
 
 function seed(db: DB) {
   const accountId = ulid(); const assetId = ulid();
-  db.insert(accounts).values({ id: accountId, name: "DEGIRO", currency: "EUR", accountType: "broker", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
+  // countryCode ES: domestic balances are exempt from the M720 seal gates.
+  db.insert(accounts).values({ id: accountId, name: "DEGIRO", currency: "EUR", accountType: "broker", countryCode: "ES", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
   db.insert(assets).values({ id: assetId, name: "X", assetType: "equity", currency: "EUR", isActive: true, assetClassTax: "etf" }).run();
   db.insert(assetTransactions).values({
     id: ulid(), accountId, assetId,
@@ -138,7 +139,7 @@ describe("drift content hash", () => {
   it("detects a swap of one sale for an equal-net other", async () => {
     const db = makeDb();
     const accountId = ulid(); const assetId = ulid();
-    db.insert(accounts).values({ id: accountId, name: "B", currency: "EUR", accountType: "broker", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
+    db.insert(accounts).values({ id: accountId, name: "B", currency: "EUR", accountType: "broker", countryCode: "ES", openingBalanceEur: 0, currentCashBalanceEur: 0 }).run();
     db.insert(assets).values({ id: assetId, name: "X", assetType: "equity", currency: "EUR", isActive: true, assetClassTax: "listed_security" }).run();
     const mkTrade = (type: "buy" | "sell", qty: number, price: number, month: number) => {
       const id = ulid();

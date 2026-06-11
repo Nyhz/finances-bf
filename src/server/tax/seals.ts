@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { taxYearSnapshots } from "../../db/schema";
+import { roundEur } from "../../lib/money";
 import { buildTaxReport, type TaxReport } from "./report";
 import type { InformationalModelsStatus } from "./m720";
 
@@ -86,10 +87,10 @@ export function computeDriftSinceSeal(db: DB, year: number): DriftReport | null 
   const drift: DriftReport = {
     year,
     contentChanged,
-    netComputableEurDelta: round(live.totals.netComputableEur - sealed.totals.netComputableEur),
-    dividendsGrossEurDelta: round(live.totals.dividendsGrossEur - sealed.totals.dividendsGrossEur),
-    withholdingOrigenTotalEurDelta: round(live.totals.withholdingOrigenTotalEur - sealed.totals.withholdingOrigenTotalEur),
-    nonComputableLossesEurDelta: round(live.totals.nonComputableLossesEur - sealed.totals.nonComputableLossesEur),
+    netComputableEurDelta: roundEur(live.totals.netComputableEur - sealed.totals.netComputableEur),
+    dividendsGrossEurDelta: roundEur(live.totals.dividendsGrossEur - sealed.totals.dividendsGrossEur),
+    withholdingOrigenTotalEurDelta: roundEur(live.totals.withholdingOrigenTotalEur - sealed.totals.withholdingOrigenTotalEur),
+    nonComputableLossesEurDelta: roundEur(live.totals.nonComputableLossesEur - sealed.totals.nonComputableLossesEur),
     salesCountDelta: live.sales.length - sealed.sales.length,
     dividendsCountDelta: live.dividends.length - sealed.dividends.length,
   };
@@ -103,8 +104,4 @@ export function computeDriftSinceSeal(db: DB, year: number): DriftReport | null 
     drift.dividendsCountDelta === 0
   ) return null;
   return drift;
-}
-
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
 }

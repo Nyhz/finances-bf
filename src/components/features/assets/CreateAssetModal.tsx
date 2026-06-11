@@ -5,17 +5,7 @@ import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { createAsset } from "@/src/actions/createAsset";
 import { ASSET_TYPES } from "@/src/actions/_constants";
-
-// Display-only labels — the submitted assetType values stay in English.
-const ASSET_TYPE_LABELS: Record<string, string> = {
-  etf: "ETF",
-  stock: "Acción",
-  bond: "Bono",
-  crypto: "Cripto",
-  fund: "Fondo",
-  "cash-equivalent": "Equivalente de efectivo",
-  other: "Otro",
-};
+import { assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
 
 type FormState = {
   name: string;
@@ -153,7 +143,7 @@ export function CreateAssetModal({
           >
             {ASSET_TYPES.map((t) => (
               <option key={t} value={t}>
-                {ASSET_TYPE_LABELS[t] ?? t}
+                {assetTypeLabel(t)}
               </option>
             ))}
           </select>

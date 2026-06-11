@@ -1,36 +1,11 @@
-export const ACTOR = "commander";
-
-export type ActionError = {
-  code: "validation" | "db" | "not_found" | "conflict" | "duplicate" | "fx_deviation";
-  message: string;
-  fieldErrors?: Record<string, string[]>;
-};
-
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: ActionError };
-
-export const ASSET_TYPES = [
-  "etf",
-  "stock",
-  "bond",
-  "crypto",
-  "fund",
-  "cash-equivalent",
-  "other",
-] as const;
-export type AssetType = (typeof ASSET_TYPES)[number];
-
-export const ACCOUNT_TYPES = [
-  "broker",
-  "crypto",
-  "investment",
-  "savings",
-] as const;
-export type AccountType = (typeof ACCOUNT_TYPES)[number];
-
-// Only savings tracks a cash balance. Broker / crypto / investment are pure
-// position containers — buys don't debit cash, sells don't credit it.
-export const CASH_BEARING_ACCOUNT_TYPES = ["savings"] as const;
-
-export function isCashBearingAccount(type: string): boolean {
-  return (CASH_BEARING_ACCOUNT_TYPES as readonly string[]).includes(type);
-}
+// Moved to src/lib/domain.ts so the server read layer and client components
+// can import domain constants without touching the actions layer. This
+// re-export keeps existing `actions/_constants` imports working.
+export {
+  ACTOR,
+  ASSET_TYPES,
+  ACCOUNT_TYPES,
+  CASH_BEARING_ACCOUNT_TYPES,
+  isCashBearingAccount,
+} from "../lib/domain";
+export type { ActionError, ActionResult, AssetType, AccountType } from "../lib/domain";

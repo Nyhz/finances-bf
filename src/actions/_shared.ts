@@ -27,12 +27,12 @@ export type {
 export function revalidateTradeMutation(accountId: string): void {
   for (const p of [
     "/",
-    "/overview",
     "/accounts",
     "/transactions",
     "/assets",
     "/taxes",
     "/audit",
+    "/statement",
   ]) {
     revalidatePath(p);
   }
@@ -42,10 +42,10 @@ export function revalidateTradeMutation(accountId: string): void {
 export function revalidateCashMovement(accountId: string): void {
   for (const p of [
     "/",
-    "/overview",
     "/accounts",
     "/transactions",
     "/audit",
+    "/statement",
   ]) {
     revalidatePath(p);
   }
@@ -53,13 +53,13 @@ export function revalidateCashMovement(accountId: string): void {
 }
 
 export function revalidateAssetMetadata(): void {
-  for (const p of ["/assets", "/overview", "/audit"]) {
+  for (const p of ["/", "/assets", "/audit"]) {
     revalidatePath(p);
   }
 }
 
 export function revalidateAccountMutation(): void {
-  for (const p of ["/", "/overview", "/accounts", "/audit"]) {
+  for (const p of ["/", "/accounts", "/audit"]) {
     revalidatePath(p);
   }
 }

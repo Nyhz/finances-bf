@@ -20,6 +20,14 @@ export const db = drizzle(sqlite, { schema });
 
 export type DB = typeof db;
 
+/** Drizzle better-sqlite3 transaction handle — the parameter every tx-scoped
+ *  recompute/action helper takes. Canonical home so callers stop re-deriving
+ *  it with the same Parameters<Parameters<…>> gymnastics. */
+export type Tx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+
+/** Accepted by helpers callable both from a top-level handle and inside a tx. */
+export type DbOrTx = DB | Tx;
+
 export function getDbPath() {
   return dbPath;
 }

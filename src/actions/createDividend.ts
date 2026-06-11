@@ -4,8 +4,9 @@ import { eq } from "drizzle-orm";
 import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
-import { rebuildAfterTradeMutation } from "../server/mutations";
+import { rebuildAfterTradeMutation } from "../server/rebuild";
 import { FxDeviationError, FxManualRequiredError, requireManualFx } from "./_fx";
+import { dividendFingerprint } from "./_fingerprint";
 import { roundEur } from "../lib/money";
 import { createDividendSchema } from "./createDividend.schema";
 import { z } from "zod";
@@ -61,6 +62,25 @@ export async function createDividend(
       }
 
       const id = ulid();
+      const baseFingerprint = dividendFingerprint({
+        accountId: data.accountId,
+        assetId: data.assetId,
+        tradeDate: data.tradeDate,
+        grossNative: data.grossNative,
+        currency: data.currency,
+      });
+      // Two genuinely identical payouts on one day collide on the unique
+      // index. Without the override this is a friendly "duplicate" error;
+      // with it, the fingerprint is salted with the new row id.
+      const collision = tx
+        .select({ id: assetTransactions.id })
+        .from(assetTransactions)
+        .where(eq(assetTransactions.rowFingerprint, baseFingerprint))
+        .get();
+      if (collision && !data.allowDuplicate) {
+        throw new Error(`duplicate dividend: ${collision.id}`);
+      }
+      const fingerprint = collision ? `${baseFingerprint}:dup:${id}` : baseFingerprint;
       tx.insert(assetTransactions).values({
         id, accountId: data.accountId, assetId: data.assetId,
         transactionType: "dividend", tradedAt,
@@ -74,6 +94,7 @@ export async function createDividend(
         withholdingTax: whtOrigenEur,
         withholdingTaxDestination: whtDestinoEur,
         sourceCountry: data.sourceCountry ?? null,
+        rowFingerprint: fingerprint,
         isListed: true, source: "manual",
         notes: data.notes ?? null,
       }).run();
@@ -125,6 +146,16 @@ export async function createDividend(
     revalidateTradeMutation(data.accountId);
     return { ok: true, data: result };
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith("duplicate dividend")) {
+      return {
+        ok: false,
+        error: {
+          code: "duplicate",
+          message:
+            "Ya existe un dividendo idéntico (misma cuenta, activo, fecha, importe bruto y divisa).",
+        },
+      };
+    }
     if (err instanceof FxManualRequiredError) {
       return {
         ok: false,

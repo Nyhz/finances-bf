@@ -1,13 +1,9 @@
-const KNOWN_COUNTRIES = new Set([
-  "US", "IE", "ES", "DE", "FR", "NL", "LU", "GB", "CH", "JP",
-  "CA", "AU", "BE", "AT", "IT", "PT", "FI", "SE", "DK", "NO",
-]);
-
 export function countryFromIsin(isin: string): string | null {
   if (!isin || isin.length < 2) return null;
   const prefix = isin.slice(0, 2).toUpperCase();
   if (!/^[A-Z]{2}$/.test(prefix)) return null;
-  return KNOWN_COUNTRIES.has(prefix) ? prefix : prefix;
+  // Any A-Z prefix passes through deliberately (XS/EU etc. fall to the default treaty rate).
+  return prefix;
 }
 
 const DDI_RATES: Record<string, number> = {

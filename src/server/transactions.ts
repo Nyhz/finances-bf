@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, ne, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import {
   accountCashMovements,
@@ -139,7 +139,10 @@ export async function getLedgerForAccount(
 
   const cmFilters: SQL[] = [
     eq(accountCashMovements.accountId, accountId),
-    ne(accountCashMovements.movementType, "trade"),
+    // A non-null externalReference marks the movement as the cash shadow of
+    // an asset_transactions row already listed above (trade, dividend, swap)
+    // — listing it too would double-count the event.
+    isNull(accountCashMovements.externalReference),
   ];
   if (cursorSortKey !== undefined && cursorId !== undefined) {
     cmFilters.push(

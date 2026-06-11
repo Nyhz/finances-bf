@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db as defaultDb, type DB } from "../db/client";
 import {
@@ -7,8 +8,8 @@ import {
   assets,
   type Account,
 } from "../db/schema";
-import { listAccounts, getAccountsSummary } from "./accounts";
-import { isCashBearingAccount } from "../actions/_shared";
+import { getAccountsSummary } from "./accounts";
+import { isCashBearingAccount } from "../lib/domain";
 import { toIsoDate } from "../lib/time";
 import { listPositions, type PositionRow } from "./positions";
 
@@ -35,7 +36,6 @@ export type OverviewKpis = {
   investedEur: number;
   unrealizedPnlEur: number;
   unrealizedPnlPct: number | null;
-  realizedPnlYtdEur: number | null;
 };
 
 function rangeStart(range: OverviewRange, now: Date = new Date()): Date | null {
@@ -105,7 +105,9 @@ export async function getOverviewKpis(
   let investedEur = 0;
   for (const row of positions) {
     if (row.valuationEur != null) marketValueEur += row.valuationEur;
-    investedEur += row.position.quantity * row.position.averageCost;
+    // Stored cost pool, not quantity × pre-rounded average — keeps the KPI
+    // in lockstep with the statement page's cost basis.
+    investedEur += row.position.totalCostEur;
   }
 
   // Range-aware P/L across the filtered positions. For ALL, this reduces to
@@ -168,16 +170,6 @@ export async function getOverviewKpis(
     pctBase = startValueTotal + Math.max(contributionsInRange, 0);
   }
 
-  let realizedPnlYtdEur: number | null = null;
-  try {
-    const { buildTaxReport } = await import("./tax/report");
-    const year = new Date().getUTCFullYear();
-    const report = buildTaxReport(db, year);
-    realizedPnlYtdEur = report.totals.netComputableEur;
-  } catch {
-    realizedPnlYtdEur = null;
-  }
-
   // Align the KPI percent with the Portfolio-evolution chart: both use the
   // time-weighted return so deposits/withdrawals don't move the number. The
   // EUR figure stays as true unrealized P&L (market value vs. cost / range
@@ -197,7 +189,6 @@ export async function getOverviewKpis(
     investedEur,
     unrealizedPnlEur,
     unrealizedPnlPct,
-    realizedPnlYtdEur,
   };
 }
 
@@ -213,9 +204,33 @@ export type NetWorthPoint = {
   performanceIndex: number;
 };
 
+/**
+ * Per-render memo for the series: the KPI card (last performanceIndex) and
+ * the chart both need it, and the full computation is expensive. React's
+ * cache() keys on argument identity, so the public wrapper serialises the
+ * filters into a stable string — two call sites with equal-but-distinct
+ * filter objects still share one entry. Outside a React render (tests,
+ * scripts) cache() degrades to a plain call.
+ */
+const getNetWorthSeriesCached = cache(
+  async (filtersKey: string, db: DB): Promise<NetWorthPoint[]> =>
+    computeNetWorthSeries(JSON.parse(filtersKey) as OverviewFilters, db),
+);
+
 export async function getNetWorthSeries(
   filters: OverviewFilters,
   db: DB = defaultDb,
+): Promise<NetWorthPoint[]> {
+  const filtersKey = JSON.stringify({
+    range: filters.range,
+    accountIds: filters.accountIds ?? null,
+  });
+  return getNetWorthSeriesCached(filtersKey, db);
+}
+
+async function computeNetWorthSeries(
+  filters: OverviewFilters,
+  db: DB,
 ): Promise<NetWorthPoint[]> {
   const { ids } = await resolveAccountIds(filters, db);
   if (ids.length === 0) return [];
@@ -251,7 +266,6 @@ export async function getNetWorthSeries(
     .get();
   const oldestTradeMs = tradeBoundsRow?.minTradedAt ?? null;
   if (oldestTradeMs === null) return [];
-  const oldestTradeIso = toIsoDate(new Date(oldestTradeMs));
 
   const rangeStartDate = rangeStart(filters.range);
   const effectiveStart = rangeStartDate
@@ -267,7 +281,6 @@ export async function getNetWorthSeries(
     gte(assetValuations.valuationDate, startIso),
     inArray(assetValuations.assetId, scopeAssetIdList),
   ];
-  void oldestTradeIso;
 
   const rows = await db
     .select()
@@ -423,7 +436,6 @@ export async function getNetWorthSeries(
 
 export type TopPositionRow = {
   position: PositionRow;
-  accountLabel: string;
   weight: number;
   pnlEur: number | null;
   pnlPct: number | null;
@@ -454,11 +466,7 @@ export async function getTopPositions(
     0,
   );
 
-  const allAccounts = await listAccounts(db);
-  const accountNameById = new Map(allAccounts.map((a) => [a.id, a.name]));
-
   const assetIds = positions.map((p) => p.position.assetId);
-  const txAccountsByAsset = new Map<string, Set<string>>();
   const contribsInRangeByAsset = new Map<string, number>();
   // Per-asset map: ISO date → Σ -cashImpactEur of trades on that date.
   const contribDeltasByAsset = new Map<string, Map<string, number>>();
@@ -475,7 +483,6 @@ export async function getTopPositions(
     const txRows = await db
       .select({
         assetId: assetTransactions.assetId,
-        accountId: assetTransactions.accountId,
         tradedAt: assetTransactions.tradedAt,
         cashImpactEur: assetTransactions.cashImpactEur,
       })
@@ -483,9 +490,6 @@ export async function getTopPositions(
       .where(inArray(assetTransactions.assetId, assetIds))
       .all();
     for (const r of txRows) {
-      const set = txAccountsByAsset.get(r.assetId) ?? new Set<string>();
-      set.add(r.accountId);
-      txAccountsByAsset.set(r.assetId, set);
       if (startMs !== null && r.tradedAt >= startMs) {
         contribsInRangeByAsset.set(
           r.assetId,
@@ -578,26 +582,10 @@ export async function getTopPositions(
     }
   }
 
-  const selectedSet = filteringAccounts ? new Set(filters.accountIds!) : null;
-
   const enriched: TopPositionRow[] = positions.map((p) => {
-    const assetAccounts =
-      txAccountsByAsset.get(p.position.assetId) ?? new Set<string>();
-    const accountIds = selectedSet
-      ? new Set([...assetAccounts].filter((id) => selectedSet.has(id)))
-      : assetAccounts;
-    const names = [...accountIds]
-      .map((id) => accountNameById.get(id))
-      .filter((n): n is string => Boolean(n));
-    const accountLabel =
-      names.length === 0
-        ? "—"
-        : names.length === 1
-          ? names[0]
-          : `${names.length} accounts`;
     const valuationEur = p.valuationEur ?? 0;
     const weight = totalValue > 0 ? valuationEur / totalValue : 0;
-    const costBasisEur = p.position.quantity * p.position.averageCost;
+    const costBasisEur = p.position.totalCostEur;
     const sparkline = valuationsByAsset.get(p.position.assetId) ?? [];
 
     let pnlEur: number | null = null;
@@ -618,7 +606,6 @@ export async function getTopPositions(
 
     return {
       position: p,
-      accountLabel,
       weight,
       pnlEur,
       pnlPct,

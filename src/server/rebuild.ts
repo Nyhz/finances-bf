@@ -1,4 +1,4 @@
-import type { db as dbModule } from "../db/client";
+import type { Tx } from "../db/client";
 import {
   recomputeAccountCashBalance,
   recomputeAssetPosition,
@@ -6,7 +6,6 @@ import {
 import { recomputeLotsForAsset } from "./tax/lots";
 import { rebuildValuationsForAsset } from "./valuations";
 
-type Tx = Parameters<Parameters<(typeof dbModule)["transaction"]>[0]>[0];
 
 /**
  * One-shot recompute that runs after any action which mutates

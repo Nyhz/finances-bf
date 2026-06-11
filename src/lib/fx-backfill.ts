@@ -1,7 +1,7 @@
 import YahooFinance from "yahoo-finance2";
 import { and, eq } from "drizzle-orm";
 import { ulid } from "ulid";
-import type { db as dbModule, DB } from "../db/client";
+import type { DbOrTx } from "../db/client";
 import { fxRates } from "../db/schema";
 import { round } from "./money";
 import { isWeekday, toIsoDate } from "./time";
@@ -10,8 +10,6 @@ import { withTimeout } from "./pricing/_net";
 
 const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
-type Tx = Parameters<Parameters<(typeof dbModule)["transaction"]>[0]>[0];
-type DbOrTx = DB | Tx;
 
 export type FxBar = {
   iso: string;

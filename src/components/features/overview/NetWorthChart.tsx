@@ -11,6 +11,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
+import { formatEur, formatPercent } from "@/src/lib/format";
 import type { NetWorthPoint } from "@/src/server/overview";
 
 type TooltipEntry = { value?: number | string; payload?: Point };
@@ -54,13 +56,6 @@ function formatTooltipDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
-}
-
-function formatTooltipMoney(value: number): string {
-  return `${value.toLocaleString("es-ES", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}€`;
 }
 
 export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
@@ -121,11 +116,7 @@ export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
 
   const formatTooltipPercent = (marketIndex: number) => {
     const pct = marketIndex - BASELINE;
-    const formatted = pct.toLocaleString("es-ES", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    return `${pct >= 0 ? "+" : ""}${formatted}%`;
+    return `${pct >= 0 ? "+" : ""}${formatPercent(pct / 100)}`;
   };
 
   const renderTooltip = (props: ChartTooltipProps) => {
@@ -142,7 +133,7 @@ export function NetWorthChart({ data }: { data: NetWorthPoint[] }) {
           {formatTooltipDate(p.dateIso)}
         </p>
         <p className="text-sm font-semibold text-foreground">
-          {formatTooltipMoney(p.totalValue)}
+          <SensitiveValue>{formatEur(p.totalValue)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
           ({formatTooltipPercent(marketIndex)})

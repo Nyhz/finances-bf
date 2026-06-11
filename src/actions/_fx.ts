@@ -1,11 +1,9 @@
 import "server-only";
 import { and, desc, eq, lte } from "drizzle-orm";
-import type { db as dbModule, DB } from "../db/client";
+import type { DbOrTx } from "../db/client";
 import { fxRates } from "../db/schema";
 import type { FxLookupSync, FxRateResult } from "../lib/fx";
 
-type Tx = Parameters<Parameters<(typeof dbModule)["transaction"]>[0]>[0];
-type DbOrTx = DB | Tx;
 
 /** `fx_rates`-backed synchronous lookup for use inside server actions. */
 export function dbFxLookup(tx: DbOrTx): FxLookupSync {

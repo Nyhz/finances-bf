@@ -355,19 +355,56 @@ async function computeNetWorthSeries(
     perAsset.set(row.assetId, list);
   }
   const orderedDates = [...datesSet].sort();
+
+  // Quantity timeline per asset, with the same day-end cursor the valuation
+  // rebuild uses: rows stop being written once the global quantity hits 0,
+  // so the forward-fill must stop contributing on those days too. Without
+  // this, a sold-out position carries its last value into every later date —
+  // and the sale proceeds register as a fake TWR gain on top.
+  const qtyTrades = await db
+    .select({
+      assetId: assetTransactions.assetId,
+      transactionType: assetTransactions.transactionType,
+      tradedAt: assetTransactions.tradedAt,
+      quantity: assetTransactions.quantity,
+    })
+    .from(assetTransactions)
+    .where(inArray(assetTransactions.assetId, scopeAssetIdList))
+    .orderBy(asc(assetTransactions.tradedAt))
+    .all();
+  const tradesByAsset = new Map<string, Array<{ tradedAt: number; signedQty: number }>>();
+  for (const t of qtyTrades) {
+    if (t.transactionType !== "buy" && t.transactionType !== "sell") continue;
+    const list = tradesByAsset.get(t.assetId) ?? [];
+    list.push({
+      tradedAt: t.tradedAt,
+      signedQty: t.transactionType === "buy" ? t.quantity : -t.quantity,
+    });
+    tradesByAsset.set(t.assetId, list);
+  }
+
   const byDate = new Map<string, number>();
-  for (const [, series] of perAsset) {
+  for (const [assetId, series] of perAsset) {
     series.sort((a, b) => a.date.localeCompare(b.date));
+    const trades = tradesByAsset.get(assetId) ?? [];
     let idx = 0;
     let last = 0;
     let seen = false;
+    let tradeIdx = 0;
+    let qty = 0;
     for (const date of orderedDates) {
       while (idx < series.length && series[idx].date <= date) {
         last = series[idx].valueEur;
         seen = true;
         idx++;
       }
+      const dayEnd = new Date(`${date}T23:59:59Z`).getTime();
+      while (tradeIdx < trades.length && trades[tradeIdx].tradedAt <= dayEnd) {
+        qty += trades[tradeIdx].signedQty;
+        tradeIdx++;
+      }
       if (!seen) continue; // asset hasn't had its first valuation yet
+      if (qty <= 1e-9) continue; // position closed at day end — don't carry the stale value
       byDate.set(date, (byDate.get(date) ?? 0) + last);
     }
   }

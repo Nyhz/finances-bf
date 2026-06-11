@@ -12,7 +12,8 @@ export const CASH_MOVEMENT_KINDS = [
 ] as const;
 export type CashMovementKind = (typeof CASH_MOVEMENT_KINDS)[number];
 
-export const createCashMovementSchema = z.object({
+export const createCashMovementSchema = z
+  .object({
   accountId: z.string().min(1),
   kind: z.enum(CASH_MOVEMENT_KINDS),
   occurredAt: isoDatePastSchema,
@@ -21,12 +22,14 @@ export const createCashMovementSchema = z.object({
   amountNative: z
     .number()
     .finite()
-    .positive("Amount must be positive — the kind decides the direction"),
+    .positive("El importe debe ser positivo — el tipo de movimiento decide el signo"),
   currency: z
     .string()
     .trim()
-    .regex(/^[A-Z]{3}$/, "Currency must be a 3-letter ISO 4217 code"),
-  fxRateToEur: z.number().finite().positive().optional(),
+    .regex(/^[A-Z]{3}$/, "La divisa debe ser un código ISO 4217 de 3 letras"),
+  /** Broker FX rate in the broker's direction: 1 EUR = X CCY. ALWAYS typed
+   *  by hand for non-EUR movements — daily rates only act as a guard. */
+  fxEurToCcy: z.number().finite().positive().optional(),
   description: z.string().trim().max(500).optional(),
   /** Audit M7: a second identical movement on the same day is flagged as a
    *  duplicate; pass true to record it anyway (salted fingerprint). */
@@ -34,6 +37,10 @@ export const createCashMovementSchema = z.object({
   /** Audit H3: a manual FX rate >20% off the stored daily rate is rejected as
    *  a probable typo/inverse; pass true to use it anyway. */
   allowFxDeviation: z.boolean().default(false),
-});
+  })
+  .refine((d) => d.currency === "EUR" || d.fxEurToCcy != null, {
+    path: ["fxEurToCcy"],
+    message: "Obligatorio en movimientos no-EUR: introduce el tipo 1 EUR = ? de tu broker.",
+  });
 
 export type CreateCashMovementInput = z.input<typeof createCashMovementSchema>;

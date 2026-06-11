@@ -1,36 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
-import {
-  clearFx,
-  makeDb,
-  resolveFxRangeStub,
-  seedPriceHistory,
-} from "./_helpers";
+import { clearFx, makeDb, seedPriceHistory } from "./_helpers";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("../../lib/fx-backfill", async () => {
-  const actual =
-    await vi.importActual<typeof import("../../lib/fx-backfill")>(
-      "../../lib/fx-backfill",
-    );
-  return { ...actual, resolveFxRange: resolveFxRangeStub };
-});
 
 import { createAccount } from "../../actions/accounts";
 import { createAsset } from "../../actions/createAsset";
-import { confirmImport } from "../../actions/confirmImport";
+import { createTransaction } from "../../actions/createTransaction";
 import { deleteTransaction } from "../../actions/deleteTransaction";
-import { reimportAccount } from "../../actions/reimportAccount";
 import { wipeApp } from "../../actions/wipeApp";
-
-const CSV =
-  "Date(UTC),Pair,Side,Price,Executed,Amount,Fee,Fee Coin\n" +
-  "2026-01-10 10:00:00,BTCEUR,BUY,40000,0.1,4000,0,EUR\n" +
-  "2026-02-20 10:00:00,BTCEUR,SELL,0.05,0.05,2000,0,EUR\n".replace(
-    "0.05,0.05",
-    "40000,0.05",
-  );
 
 async function setup(db: DB) {
   const acc = await createAccount(
@@ -43,7 +22,7 @@ async function setup(db: DB) {
     db,
   );
   if (!acc.ok) throw new Error("account");
-  await createAsset(
+  const asset = await createAsset(
     {
       name: "Bitcoin",
       assetType: "crypto",
@@ -53,25 +32,50 @@ async function setup(db: DB) {
     },
     db,
   );
+  if (!asset.ok) throw new Error("asset");
   seedPriceHistory(db, "bitcoin", "2026-01-10", "2026-04-22", 45000, {
     weekdaysOnly: false,
   });
-  return acc.data.id;
+  return { accountId: acc.data.id, assetId: asset.data.id };
 }
 
-describe("e2e — lifecycle: deleteTransaction / reimportAccount / wipeApp", () => {
+describe("e2e — lifecycle: deleteTransaction / wipeApp", () => {
   let db: DB;
   let accountId: string;
+  let assetId: string;
 
   beforeEach(async () => {
     db = makeDb();
     clearFx();
-    accountId = await setup(db);
-    const res = await confirmImport(
-      { source: "binance", accountId, csvText: CSV },
+    ({ accountId, assetId } = await setup(db));
+    const buy = await createTransaction(
+      {
+        accountId,
+        assetId,
+        tradeDate: "2026-01-10",
+        side: "buy",
+        quantity: 0.1,
+        priceNative: 40_000,
+        currency: "EUR",
+        fees: 0,
+      },
       db,
     );
-    if (!res.ok) throw new Error(res.error.message);
+    if (!buy.ok) throw new Error(buy.error.message);
+    const sell = await createTransaction(
+      {
+        accountId,
+        assetId,
+        tradeDate: "2026-02-20",
+        side: "sell",
+        quantity: 0.05,
+        priceNative: 40_000,
+        currency: "EUR",
+        fees: 0,
+      },
+      db,
+    );
+    if (!sell.ok) throw new Error(sell.error.message);
   });
 
   it("deleteTransaction recomputes positions, lots and valuations; never touches asset catalog or price_history", async () => {
@@ -96,24 +100,6 @@ describe("e2e — lifecycle: deleteTransaction / reimportAccount / wipeApp", () 
     expect(
       db.select().from(schema.priceHistory).all().length,
     ).toBeGreaterThan(0);
-  });
-
-  it("reimportAccount wipes every trade of the account but keeps assets and prices", async () => {
-    const res = await reimportAccount({ accountId }, db);
-    if (!res.ok) throw new Error(res.error.message);
-    expect(res.data.deletedTransactions).toBe(2);
-
-    expect(db.select().from(schema.assetTransactions).all()).toHaveLength(0);
-    expect(db.select().from(schema.taxLots).all()).toHaveLength(0);
-    expect(db.select().from(schema.assetPositions).all()).toHaveLength(0);
-    // Asset catalog preserved.
-    expect(db.select().from(schema.assets).all()).toHaveLength(1);
-    // Price feed preserved.
-    expect(
-      db.select().from(schema.priceHistory).all().length,
-    ).toBeGreaterThan(0);
-    // Account row still exists.
-    expect(db.select().from(schema.accounts).all()).toHaveLength(1);
   });
 
   it("wipeApp requires 'WIPE' confirmation and keeps ONLY assets + price_history", async () => {
@@ -144,10 +130,6 @@ describe("e2e — lifecycle: deleteTransaction / reimportAccount / wipeApp", () 
       db.select().from(schema.taxWashSaleAdjustments).all(),
     ).toHaveLength(0);
     expect(db.select().from(schema.taxYearSnapshots).all()).toHaveLength(0);
-    expect(db.select().from(schema.transactionImports).all()).toHaveLength(0);
-    expect(
-      db.select().from(schema.transactionImportRows).all(),
-    ).toHaveLength(0);
     expect(db.select().from(schema.auditEvents).all()).toHaveLength(0);
     expect(db.select().from(schema.fxRates).all()).toHaveLength(0);
   });

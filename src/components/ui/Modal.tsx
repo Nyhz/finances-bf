@@ -49,7 +49,7 @@ export function Modal({
             </div>
             <Dialog.Close
               className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label="Close"
+              aria-label="Cerrar"
             >
               <X className="h-4 w-4" />
             </Dialog.Close>

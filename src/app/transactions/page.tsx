@@ -17,6 +17,13 @@ import { DeleteTransactionButton } from "@/src/components/features/transactions/
 
 type SearchParams = Promise<{ cursor?: string }>;
 
+// Display-only labels — the stored enum values ("buy", "sell", …) stay in English.
+const TRANSACTION_TYPE_LABELS: Record<string, string> = {
+  buy: "Compra",
+  sell: "Venta",
+  dividend: "Dividendo",
+};
+
 export default async function TransactionsPage({
   searchParams,
 }: {
@@ -40,9 +47,9 @@ export default async function TransactionsPage({
     <div className="flex flex-col gap-6 p-8">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Transactions</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Transacciones</h1>
           <p className="text-sm text-muted-foreground">
-            Unified timeline of trades and cash movements.
+            Cronología unificada de operaciones y movimientos de efectivo.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -75,34 +82,39 @@ export default async function TransactionsPage({
       {result.items.length === 0 && !cursor ? (
         <StatesBlock
           mode="empty"
-          title="No transactions yet"
-          description="Import a CSV or record a trade to populate the timeline."
+          title="Sin transacciones"
+          description="Registra una operación con «Nueva transacción» para poblar la cronología."
         />
       ) : (
         <DataTable<AssetTransaction>
           rows={result.items}
           getRowKey={(r) => r.id}
-          emptyState="No transactions on this page."
+          emptyState="Sin transacciones en esta página."
           columns={[
             {
               key: "date",
-              header: "Date",
+              header: "Fecha",
               cell: (r) => formatDateTime(r.tradedAt),
             },
             {
               key: "account",
-              header: "Account",
+              header: "Cuenta",
               cell: (r) => accountName.get(r.accountId) ?? r.accountId,
             },
             {
               key: "asset",
-              header: "Asset",
+              header: "Activo",
               cell: (r) => assetName.get(r.assetId) ?? r.assetId,
             },
-            { key: "type", header: "Type", cell: (r) => r.transactionType },
+            {
+              key: "type",
+              header: "Tipo",
+              cell: (r) =>
+                TRANSACTION_TYPE_LABELS[r.transactionType] ?? r.transactionType,
+            },
             {
               key: "qty",
-              header: "Qty",
+              header: "Cant.",
               align: "right",
               cell: (r) => (
                 <span className="tabular-nums">{r.quantity.toFixed(4)}</span>
@@ -110,7 +122,7 @@ export default async function TransactionsPage({
             },
             {
               key: "price",
-              header: "Price",
+              header: "Precio",
               align: "right",
               cell: (r) => (
                 <span className="tabular-nums">{r.unitPrice.toFixed(4)}</span>
@@ -127,9 +139,9 @@ export default async function TransactionsPage({
                     <Badge
                       variant="warning"
                       className="ml-1.5"
-                      title="No FX rate existed for the trade date — the most recent earlier rate was used. EUR amounts derived from it are approximate."
+                      title="No existía tipo de cambio para la fecha de la operación — se usó el más reciente anterior. Los importes en EUR derivados de él son aproximados."
                     >
-                      stale FX
+                      FX desactualizado
                     </Badge>
                   ) : null}
                 </span>
@@ -145,7 +157,7 @@ export default async function TransactionsPage({
             },
             {
               key: "fee",
-              header: "Fee (EUR)",
+              header: "Comisión (EUR)",
               align: "right",
               cell: (r) => (
                 <SensitiveValue>{formatEur(r.feesAmountEur)}</SensitiveValue>
@@ -160,24 +172,24 @@ export default async function TransactionsPage({
           ]}
           footer={
             <>
-              <span>{result.items.length} rows</span>
+              <span>{result.items.length} filas</span>
               <span className="flex items-center gap-2">
                 {prevHref ? (
                   <Button asChild variant="secondary" size="sm">
-                    <Link href={prevHref}>Prev</Link>
+                    <Link href={prevHref}>Anterior</Link>
                   </Button>
                 ) : (
                   <Button variant="secondary" size="sm" disabled>
-                    Prev
+                    Anterior
                   </Button>
                 )}
                 {nextHref ? (
                   <Button asChild variant="secondary" size="sm">
-                    <Link href={nextHref}>Next</Link>
+                    <Link href={nextHref}>Siguiente</Link>
                   </Button>
                 ) : (
                   <Button variant="secondary" size="sm" disabled>
-                    Next
+                    Siguiente
                   </Button>
                 )}
               </span>

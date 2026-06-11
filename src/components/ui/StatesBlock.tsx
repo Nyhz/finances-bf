@@ -85,7 +85,7 @@ export function StatesBlock(props: StatesBlockProps) {
       <p className="text-sm text-foreground">{props.message}</p>
       {props.onRetry && (
         <Button variant="secondary" size="sm" onClick={props.onRetry}>
-          Retry
+          Reintentar
         </Button>
       )}
     </div>

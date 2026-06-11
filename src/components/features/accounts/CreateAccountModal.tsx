@@ -6,6 +6,14 @@ import { Button } from "@/src/components/ui/Button";
 import { createAccount } from "@/src/actions/accounts";
 import { ACCOUNT_TYPES } from "@/src/actions/_constants";
 
+// Display-only labels — the submitted accountType values stay in English.
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  broker: "Bróker",
+  crypto: "Cripto",
+  investment: "Inversión",
+  savings: "Efectivo",
+};
+
 type FormState = {
   name: string;
   accountType: string;
@@ -79,8 +87,8 @@ export function CreateAccountModal({
         if (!next && !pending) reset();
         onOpenChange(next);
       }}
-      title="New account"
-      description="Track a cash balance against a broker, bank, or wallet."
+      title="Nueva cuenta"
+      description="Registra el saldo de efectivo de un bróker, banco o monedero."
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -92,7 +100,7 @@ export function CreateAccountModal({
           </div>
         )}
 
-        <Field label="Name" errors={fieldErrors.name}>
+        <Field label="Nombre" errors={fieldErrors.name}>
           <input
             type="text"
             value={form.name}
@@ -103,7 +111,7 @@ export function CreateAccountModal({
           />
         </Field>
 
-        <Field label="Type" errors={fieldErrors.accountType}>
+        <Field label="Tipo" errors={fieldErrors.accountType}>
           <select
             value={form.accountType}
             onChange={(e) => update("accountType", e.target.value)}
@@ -111,25 +119,33 @@ export function CreateAccountModal({
           >
             {ACCOUNT_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {ACCOUNT_TYPE_LABELS[t] ?? t}
               </option>
             ))}
           </select>
+          <span className="text-xs text-muted-foreground">
+            Solo «Efectivo» mantiene saldo en metálico. Bróker, cripto e
+            inversión contienen únicamente posiciones: el dinero de las ventas
+            no se acumula en ellas.
+          </span>
         </Field>
 
-        <Field label="Currency (ISO 4217)" errors={fieldErrors.currency}>
-          <input
-            type="text"
+        <Field label="Divisa" errors={fieldErrors.currency}>
+          {/* Selector cerrado: un typo en texto libre contaminaría todo el
+              pipeline FX. EUR es el caso real; USD queda como opción. */}
+          <select
             value={form.currency}
-            onChange={(e) => update("currency", e.target.value.toUpperCase())}
+            onChange={(e) => update("currency", e.target.value)}
             className={inputClass}
-            maxLength={3}
             required
-          />
+          >
+            <option value="EUR">EUR</option>
+            <option value="USD">USD</option>
+          </select>
         </Field>
 
         <Field
-          label={`Opening balance (${form.currency || "EUR"})`}
+          label={`Saldo inicial (${form.currency || "EUR"})`}
           errors={fieldErrors.openingBalanceNative}
         >
           <input
@@ -144,7 +160,7 @@ export function CreateAccountModal({
           />
         </Field>
 
-        <Field label="Notes" errors={fieldErrors.notes}>
+        <Field label="Notas" errors={fieldErrors.notes}>
           <textarea
             value={form.notes}
             onChange={(e) => update("notes", e.target.value)}
@@ -163,10 +179,10 @@ export function CreateAccountModal({
             }}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           <Button type="submit" disabled={pending}>
-            {pending ? "Creating…" : "Create account"}
+            {pending ? "Creando…" : "Crear cuenta"}
           </Button>
         </div>
       </form>

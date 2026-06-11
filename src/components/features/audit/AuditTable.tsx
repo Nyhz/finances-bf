@@ -47,7 +47,7 @@ function DiffView({
   if (keys.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No payload recorded for this event.
+        Sin datos registrados para este evento.
       </p>
     );
   }
@@ -55,9 +55,9 @@ function DiffView({
   return (
     <div className="overflow-hidden rounded-md border border-border bg-background">
       <div className="grid grid-cols-[minmax(8rem,auto)_1fr_1fr] border-b border-border bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        <div className="px-3 py-2">Key</div>
-        <div className="border-l border-border px-3 py-2">Previous</div>
-        <div className="border-l border-border px-3 py-2">Next</div>
+        <div className="px-3 py-2">Clave</div>
+        <div className="border-l border-border px-3 py-2">Anterior</div>
+        <div className="border-l border-border px-3 py-2">Posterior</div>
       </div>
       <div className="divide-y divide-border font-mono text-xs">
         {keys.map((key) => {
@@ -114,12 +114,12 @@ export function AuditTable({ rows }: { rows: AuditEvent[] }) {
           <thead>
             <tr className="border-b border-border bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               <th className="w-10 px-2 py-2.5" />
-              <th className="px-4 py-2.5 text-left">When</th>
-              <th className="px-4 py-2.5 text-left">Entity</th>
-              <th className="px-4 py-2.5 text-left">Entity id</th>
-              <th className="px-4 py-2.5 text-left">Action</th>
+              <th className="px-4 py-2.5 text-left">Fecha</th>
+              <th className="px-4 py-2.5 text-left">Entidad</th>
+              <th className="px-4 py-2.5 text-left">ID de entidad</th>
+              <th className="px-4 py-2.5 text-left">Acción</th>
               <th className="px-4 py-2.5 text-left">Actor</th>
-              <th className="px-4 py-2.5 text-left">Source</th>
+              <th className="px-4 py-2.5 text-left">Origen</th>
             </tr>
           </thead>
           <tbody>
@@ -133,9 +133,9 @@ export function AuditTable({ rows }: { rows: AuditEvent[] }) {
                   >
                     <td className="px-2 py-2.5 text-muted-foreground">
                       {isOpen ? (
-                        <ChevronDown className="h-4 w-4" aria-label="Collapse" />
+                        <ChevronDown className="h-4 w-4" aria-label="Contraer" />
                       ) : (
-                        <ChevronRight className="h-4 w-4" aria-label="Expand" />
+                        <ChevronRight className="h-4 w-4" aria-label="Expandir" />
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-foreground">

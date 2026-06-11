@@ -8,7 +8,7 @@ export const updateAssetSchema = z.object({
   isin: z
     .string()
     .trim()
-    .regex(/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i, "ISIN must be 12 alphanumeric characters")
+    .regex(/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i, "El ISIN debe tener 12 caracteres alfanuméricos")
     .transform((v) => v.toUpperCase())
     .nullable()
     .optional(),

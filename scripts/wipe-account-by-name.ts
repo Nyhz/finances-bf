@@ -7,8 +7,6 @@ import {
   taxLotConsumptions,
   taxWashSaleAdjustments,
   auditEvents,
-  transactionImports,
-  transactionImportRows,
 } from "../src/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { recomputeLotsForAsset } from "../src/server/tax/lots";
@@ -32,22 +30,15 @@ db.transaction((tx) => {
   }
   tx.delete(assetTransactions).where(eq(assetTransactions.accountId, acc.id)).run();
   tx.delete(accountCashMovements).where(eq(accountCashMovements.accountId, acc.id)).run();
-  // Delete DEGIRO-format import sessions (transaction_imports has no accountId).
-  const imports = tx.select().from(transactionImports).where(inArray(transactionImports.format, ["degiro", "degiro-statement"])).all();
-  const importIds = imports.map((i) => i.id);
-  if (importIds.length > 0) {
-    tx.delete(transactionImportRows).where(inArray(transactionImportRows.importId, importIds)).run();
-    tx.delete(transactionImports).where(inArray(transactionImports.id, importIds)).run();
-  }
   for (const aid of assetIds) recomputeLotsForAsset(tx, aid);
   tx.insert(auditEvents).values({
     id: ulid(), entityType: "account", entityId: acc.id,
     action: "reimport-wipe", actorType: "user", source: "script",
-    summary: `wiped ${txns.length} txns, ${imports.length} imports`,
-    previousJson: JSON.stringify({ txnCount: txns.length, importCount: imports.length }),
+    summary: `wiped ${txns.length} txns`,
+    previousJson: JSON.stringify({ txnCount: txns.length }),
     nextJson: null,
     contextJson: JSON.stringify({ actor: "commander-cli" }),
     createdAt: Date.now(),
   }).run();
-  console.log(`deleted ${txns.length} transactions, ${imports.length} import sessions`);
+  console.log(`deleted ${txns.length} transactions`);
 });

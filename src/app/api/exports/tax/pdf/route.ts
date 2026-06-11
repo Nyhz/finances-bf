@@ -16,7 +16,9 @@ export async function GET(req: Request) {
   const models: InformationalModelsStatus = snapshot
     ? snapshot.payload
     : computeInformationalModelsStatus(db, year, aggregateBlocksFromBalances(report.yearEndBalances));
-  const interestEur = await getInterestForYear(year, db);
+  // Sealed years use the interest frozen at seal time — the sealed PDF must
+  // be fully reproducible from the snapshot (audit F8).
+  const interestEur = snapshot?.payload.interestEur ?? (await getInterestForYear(year, db));
   const pdf = buildTaxReportPdf({
     year,
     report,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStatementReport } from "@/src/server/statement";
+import { getNetWorthSeries } from "@/src/server/overview";
 import { buildStatementCsv } from "@/src/lib/exports/statement-csv";
 import { buildStatementXlsx } from "@/src/lib/exports/statement-xlsx";
 import { buildStatementReportPdf } from "@/src/lib/pdf/statement-report";
@@ -35,7 +36,11 @@ export async function GET(req: Request) {
     });
   }
 
-  const pdf = buildStatementReportPdf(report);
+  // Serie de evolución para el gráfico de área de la primera página.
+  const series = await getNetWorthSeries({ range: "ALL", accountIds: [] });
+  const pdf = buildStatementReportPdf(report, {
+    series: series.map((p) => ({ date: p.date, valueEur: p.valueEur })),
+  });
   return new NextResponse(pdf as unknown as BodyInit, {
     headers: {
       "content-type": "application/pdf",

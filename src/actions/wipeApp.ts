@@ -16,8 +16,6 @@ import {
   taxLots,
   taxWashSaleAdjustments,
   taxYearSnapshots,
-  transactionImportRows,
-  transactionImports,
 } from "../db/schema";
 import type { ActionResult } from "./_shared";
 
@@ -40,7 +38,7 @@ export async function wipeApp(
       ok: false,
       error: {
         code: "validation",
-        message: "Type WIPE to confirm",
+        message: "Escribe WIPE para confirmar",
       },
     };
   }
@@ -52,8 +50,6 @@ export async function wipeApp(
       tx.delete(taxLotConsumptions).run();
       tx.delete(taxLots).run();
       tx.delete(taxYearSnapshots).run();
-      tx.delete(transactionImportRows).run();
-      tx.delete(transactionImports).run();
       tx.delete(accountCashMovements).run();
       tx.delete(assetTransactions).run();
       tx.delete(assetPositions).run();

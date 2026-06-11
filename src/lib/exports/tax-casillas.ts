@@ -1,9 +1,17 @@
 import type { TaxReport } from "../../server/tax/report";
-import { ddiTreatyRate } from "../../server/tax/countries";
 
 type Row = { casilla: string; label: string; valueEur: number };
 
-export function buildCasillasCsv(report: TaxReport): string {
+/**
+ * `ddiCreditEur` must be the CAPPED credit from `estimateSavingsCuota` /
+ * `buildPrevision` — the DDI is a cuota deduction, legalmente limitada por la
+ * cuota íntegra (art. 92 NF 13/2013). Computing it here uncapped made this
+ * CSV disagree with the PDF in loss years (audit F3).
+ *
+ * Box numbers are the estado Modelo 100 numbering, kept as orientative
+ * labels — the foral form numbering differs.
+ */
+export function buildCasillasCsv(report: TaxReport, ddiCreditEur: number): string {
   const rows: Row[] = [];
   rows.push({ casilla: "0326", label: "Ganancias patrimoniales (transmisión)", valueEur: report.totals.realizedGainsEur });
   rows.push({ casilla: "0340", label: "Pérdidas computables", valueEur: Math.abs(report.totals.realizedLossesComputableEur) });
@@ -14,11 +22,11 @@ export function buildCasillasCsv(report: TaxReport): string {
     label: "Retenciones e ingresos a cuenta",
     valueEur: report.totals.withholdingOrigenTotalEur + report.totals.withholdingDestinoTotalEur,
   });
-  const ddi = report.dividends.reduce((sum, d) => {
-    const cap = d.sourceCountry ? ddiTreatyRate(d.sourceCountry) : 0.15;
-    return sum + Math.min(d.withholdingOrigenEur, cap * d.grossEur);
-  }, 0);
-  rows.push({ casilla: "0588", label: "Deducción doble imposición internacional", valueEur: Math.round(ddi * 100) / 100 });
+  rows.push({
+    casilla: "0588",
+    label: "Deducción doble imposición internacional (topada a cuota)",
+    valueEur: ddiCreditEur,
+  });
 
   const header = "casilla|etiqueta|valor_eur";
   // Audit T9: serialize money at exactly 2dp — raw doubles leak artifacts

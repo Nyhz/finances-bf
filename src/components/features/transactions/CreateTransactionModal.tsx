@@ -19,7 +19,8 @@ type FormState = {
   quantity: string;
   priceNative: string;
   currency: string;
-  fxRateToEur: string;
+  /** Broker's direction (DEGIRO): 1 EUR = X CCY. Always typed by hand. */
+  fxEurToCcy: string;
   fees: string;
   notes: string;
 };
@@ -51,7 +52,7 @@ export function CreateTransactionModal({
       quantity: "",
       priceNative: "",
       currency: assets[0]?.currency ?? "EUR",
-      fxRateToEur: "",
+      fxEurToCcy: "",
       fees: "0",
       notes: "",
     }),
@@ -124,19 +125,26 @@ export function CreateTransactionModal({
     };
   }, [open, form.currency, form.tradeDate]);
 
-  const manualRate = form.fxRateToEur.trim() ? Number(form.fxRateToEur) : undefined;
+  // FX is ALWAYS manual for non-EUR: the daily stored rate never applies to a
+  // transaction (it only powers the reference line and the deviation guard).
+  const manualEurToCcy = form.fxEurToCcy.trim() ? Number(form.fxEurToCcy) : undefined;
   const effectiveRate =
-    form.currency === "EUR" ? 1 : (manualRate ?? fxPreview?.rate);
+    form.currency === "EUR"
+      ? 1
+      : manualEurToCcy != null && manualEurToCcy > 0
+        ? 1 / manualEurToCcy
+        : undefined;
   const qtyNum = Number(form.quantity);
   const priceNum = Number(form.priceNative);
   const feesNum = Number(form.fees || 0);
+  // Fees are entered in EUR (European broker) — only the gross leg converts.
   const estimatedTotalEur =
     effectiveRate != null &&
     Number.isFinite(effectiveRate) &&
     effectiveRate > 0 &&
     qtyNum > 0 &&
     priceNum > 0
-      ? (qtyNum * priceNum + (form.side === "buy" ? feesNum : -feesNum)) * effectiveRate
+      ? qtyNum * priceNum * effectiveRate + (form.side === "buy" ? feesNum : -feesNum)
       : null;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -158,7 +166,7 @@ export function CreateTransactionModal({
       quantity: Number(form.quantity),
       priceNative: Number(form.priceNative),
       currency: form.currency.toUpperCase(),
-      fxRateToEur: form.fxRateToEur.trim() ? Number(form.fxRateToEur) : undefined,
+      fxEurToCcy: form.fxEurToCcy.trim() ? Number(form.fxEurToCcy) : undefined,
       fees: Number(form.fees || 0),
       notes: form.notes.trim() ? form.notes : undefined,
       allowDuplicate: acceptedRef.current.duplicate,
@@ -196,8 +204,8 @@ export function CreateTransactionModal({
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      title="New transaction"
-      description="Record a buy or sell. Position and cash balance update together."
+      title="Nueva transacción"
+      description="Registra una compra o venta. La posición y el saldo de efectivo se actualizan a la vez."
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -209,14 +217,14 @@ export function CreateTransactionModal({
           </div>
         )}
 
-        <Field label="Account" errors={fieldErrors.accountId}>
+        <Field label="Cuenta" errors={fieldErrors.accountId}>
           <select
             value={form.accountId}
             onChange={(e) => update("accountId", e.target.value)}
             className={inputClass}
             required
           >
-            {accounts.length === 0 && <option value="">No accounts</option>}
+            {accounts.length === 0 && <option value="">Sin cuentas</option>}
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -225,14 +233,14 @@ export function CreateTransactionModal({
           </select>
         </Field>
 
-        <Field label="Asset" errors={fieldErrors.assetId}>
+        <Field label="Activo" errors={fieldErrors.assetId}>
           <select
             value={form.assetId}
             onChange={(e) => onAssetChange(e.target.value)}
             className={inputClass}
             required
           >
-            {assets.length === 0 && <option value="">No assets</option>}
+            {assets.length === 0 && <option value="">Sin activos</option>}
             {assets.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.symbol ?? a.name} — {a.name}
@@ -241,18 +249,18 @@ export function CreateTransactionModal({
           </select>
         </Field>
 
-        <Field label="Side" errors={fieldErrors.side}>
+        <Field label="Operación" errors={fieldErrors.side}>
           <select
             value={form.side}
             onChange={(e) => update("side", e.target.value as "buy" | "sell")}
             className={inputClass}
           >
-            <option value="buy">Buy</option>
-            <option value="sell">Sell</option>
+            <option value="buy">Compra</option>
+            <option value="sell">Venta</option>
           </select>
         </Field>
 
-        <Field label="Trade date" errors={fieldErrors.tradeDate}>
+        <Field label="Fecha de operación" errors={fieldErrors.tradeDate}>
           <input
             type="date"
             value={form.tradeDate}
@@ -263,7 +271,7 @@ export function CreateTransactionModal({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Quantity" errors={fieldErrors.quantity}>
+          <Field label="Cantidad" errors={fieldErrors.quantity}>
             <input
               type="number"
               inputMode="decimal"
@@ -275,7 +283,7 @@ export function CreateTransactionModal({
               required
             />
           </Field>
-          <Field label="Unit price" errors={fieldErrors.priceNative}>
+          <Field label="Precio unitario" errors={fieldErrors.priceNative}>
             <input
               type="number"
               inputMode="decimal"
@@ -290,7 +298,7 @@ export function CreateTransactionModal({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Currency" errors={fieldErrors.currency}>
+          <Field label="Divisa" errors={fieldErrors.currency}>
             <input
               type="text"
               value={form.currency}
@@ -300,10 +308,10 @@ export function CreateTransactionModal({
               className={`${inputClass} cursor-not-allowed bg-muted/40 text-muted-foreground`}
             />
             <span className="text-xs text-muted-foreground">
-              Derived from the selected asset — the unit price is always in this currency.
+              Derivada del activo seleccionado — el precio unitario siempre está en esta divisa.
             </span>
           </Field>
-          <Field label={`Fees (${form.currency})`} errors={fieldErrors.fees}>
+          <Field label="Comisiones (EUR)" errors={fieldErrors.fees}>
             <input
               type="number"
               inputMode="decimal"
@@ -318,36 +326,30 @@ export function CreateTransactionModal({
 
         {form.currency !== "EUR" && (
           <Field
-            label={`FX rate — 1 ${form.currency} = ? EUR (optional)`}
-            errors={fieldErrors.fxRateToEur}
+            label={`Tipo de cambio — 1 EUR = ? ${form.currency} (el de tu broker, obligatorio)`}
+            errors={fieldErrors.fxEurToCcy}
           >
             <input
               type="number"
               inputMode="decimal"
               step="any"
               min="0"
-              placeholder={
-                fxPreview
-                  ? `Leave blank to use ${fxPreview.rate.toFixed(6)}`
-                  : "Leave blank to use the stored daily rate"
-              }
-              value={form.fxRateToEur}
-              onChange={(e) => update("fxRateToEur", e.target.value)}
+              placeholder={`p. ej. ${fxPreview ? (1 / fxPreview.rate).toFixed(4) : "1,15"} — tal como lo muestra DEGIRO`}
+              value={form.fxEurToCcy}
+              onChange={(e) => update("fxEurToCcy", e.target.value)}
               className={inputClass}
+              required
             />
             {fxPreview && (
               <span className="text-xs text-muted-foreground">
-                Stored rate: 1 {form.currency} = {fxPreview.rate.toFixed(6)} EUR
-                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""}
-                {fxPreview.stale
-                  ? " — stale: no rate for the trade date, most recent earlier rate shown"
-                  : ""}
+                Referencia diaria: 1 EUR = {(1 / fxPreview.rate).toFixed(4)} {form.currency}
+                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""} — solo salvaguarda,
+                nunca se aplica automáticamente.
               </span>
             )}
             {fxUnavailable && (
-              <span className="text-xs text-destructive">
-                No stored rate for this currency/date — enter the broker&apos;s rate
-                (how many EUR one {form.currency} is worth).
+              <span className="text-xs text-muted-foreground">
+                Sin referencia diaria para esta fecha — se omite la salvaguarda de desviación.
               </span>
             )}
           </Field>
@@ -356,14 +358,16 @@ export function CreateTransactionModal({
         {estimatedTotalEur != null && (
           <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
             <span className="text-muted-foreground">
-              Estimated {form.side === "buy" ? "cost incl. fees" : "net proceeds"}
-              {manualRate != null ? " (your rate)" : fxPreview?.stale ? " (stale rate)" : ""}
+              {form.side === "buy"
+                ? "Coste estimado (comisiones incl.)"
+                : "Importe neto estimado"}
+              {form.currency !== "EUR" ? " (con tu tipo)" : ""}
             </span>
             <SensitiveValue>{formatEur(estimatedTotalEur)}</SensitiveValue>
           </div>
         )}
 
-        <Field label="Notes" errors={fieldErrors.notes}>
+        <Field label="Notas" errors={fieldErrors.notes}>
           <textarea
             value={form.notes}
             onChange={(e) => update("notes", e.target.value)}
@@ -379,7 +383,7 @@ export function CreateTransactionModal({
             onClick={() => handleOpenChange(false)}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           {duplicateWarning ? (
             <Button
@@ -388,7 +392,7 @@ export function CreateTransactionModal({
               disabled={pending}
               onClick={() => submit({ allowDuplicate: true })}
             >
-              Save anyway
+              Guardar igualmente
             </Button>
           ) : null}
           {fxDeviationWarning ? (
@@ -398,11 +402,11 @@ export function CreateTransactionModal({
               disabled={pending}
               onClick={() => submit({ allowFxDeviation: true })}
             >
-              Use my rate anyway
+              Usar mi tipo igualmente
             </Button>
           ) : null}
           <Button type="submit" disabled={pending || !form.accountId || !form.assetId}>
-            {pending ? "Saving…" : "Create transaction"}
+            {pending ? "Guardando…" : "Crear transacción"}
           </Button>
         </div>
       </form>

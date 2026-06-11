@@ -20,25 +20,25 @@ function formatUnit(value: number | null): string {
 export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
   if (rows.length === 0) {
     return (
-      <Card title="Top positions">
+      <Card title="Posiciones">
         <StatesBlock
           mode="empty"
-          title="No positions"
-          description="No open positions for the selected filters."
+          title="Sin posiciones"
+          description="No hay posiciones abiertas con los filtros seleccionados."
         />
       </Card>
     );
   }
 
   return (
-    <Card title="Top positions">
+    <Card title="Posiciones">
       <DataTable<TopPositionRow>
         rows={rows}
         getRowKey={(r) => r.position.position.id}
         columns={[
           {
             key: "asset",
-            header: "Asset",
+            header: "Activo",
             cell: (r) => {
               const a = r.position.asset;
               const symbol = a.symbol ?? a.providerSymbol ?? "";
@@ -57,7 +57,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           },
           {
             key: "qty",
-            header: "Quantity",
+            header: "Cantidad",
             align: "right",
             cell: (r) => {
               const isCrypto = r.position.asset.assetType === "crypto";
@@ -72,7 +72,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           },
           {
             key: "avgBuy",
-            header: "Avg buy / unit",
+            header: "Coste medio / ud.",
             align: "right",
             cell: (r) => (
               <SensitiveValue className="tabular-nums">
@@ -82,7 +82,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           },
           {
             key: "currentUnit",
-            header: "Current / unit",
+            header: "Precio actual / ud.",
             align: "right",
             cell: (r) => (
               <SensitiveValue className="tabular-nums">
@@ -92,7 +92,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           },
           {
             key: "currentTotal",
-            header: "Current / total",
+            header: "Valor actual",
             align: "right",
             cell: (r) =>
               r.position.valuationEur == null ? (
@@ -105,7 +105,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           },
           {
             key: "pnl",
-            header: "P/L",
+            header: "Plusvalía",
             align: "right",
             cell: (r) => {
               if (r.pnlEur == null) {
@@ -137,7 +137,7 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
           },
           {
             key: "graph",
-            header: "Graph",
+            header: "Gráfica",
             align: "right",
             className: "w-[260px]",
             cell: (r) => (

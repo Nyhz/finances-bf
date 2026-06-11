@@ -2,8 +2,8 @@
 
 import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
-import { resolveFxForDate } from "./_fx";
-import { FxUnavailableError, type FxSource } from "../lib/fx";
+import { dbFxLookup } from "./_fx";
+import { FxUnavailableError, resolveFxRateSync, type FxSource } from "../lib/fx";
 import type { ActionResult } from "./_shared";
 import { isoDatePastSchema } from "./_schemas";
 
@@ -24,9 +24,10 @@ export type FxPreview = {
 };
 
 /**
- * Read-only lookup so entry modals can show the rate that WILL be applied
- * (and its provenance/staleness) before the user submits — never lets money
- * be entered blind (audit H3). No mutation: no audit event, no revalidate.
+ * Read-only lookup of the stored daily rate so entry modals can show a
+ * REFERENCE next to the (always manual) broker-rate field — the daily rate is
+ * never applied to a transaction, it only powers this hint and the deviation
+ * guard. No mutation: no audit event, no revalidate.
  */
 export async function previewFx(
   input: unknown,
@@ -34,11 +35,11 @@ export async function previewFx(
 ): Promise<ActionResult<FxPreview>> {
   const parsed = previewFxSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: { code: "validation", message: "invalid input" } };
+    return { ok: false, error: { code: "validation", message: "Datos no válidos" } };
   }
   const { currency, date } = parsed.data;
   try {
-    const fx = resolveFxForDate(db, currency, date);
+    const fx = resolveFxRateSync(currency, date, dbFxLookup(db));
     return {
       ok: true,
       data: {
@@ -54,7 +55,7 @@ export async function previewFx(
         ok: false,
         error: {
           code: "not_found",
-          message: `No stored FX rate for ${err.currency} on or before ${err.isoDate}.`,
+          message: `No hay tipo de cambio almacenado para ${err.currency} a fecha ${err.isoDate} o anterior.`,
         },
       };
     }

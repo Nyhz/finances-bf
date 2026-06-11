@@ -34,6 +34,22 @@ export type AccountLedgerProps = {
 
 type Target = { kind: Kind; id: string; label: string };
 
+// Display-only labels — the stored ledger kinds ("buy", "deposit", …) stay in English.
+const LEDGER_LABELS: Record<string, string> = {
+  buy: "Compra",
+  sell: "Venta",
+  deposit: "Ingreso",
+  withdrawal: "Retirada",
+  dividend: "Dividendo",
+  interest: "Interés",
+  fee: "Comisión",
+  transfer: "Transferencia",
+};
+
+function ledgerLabel(label: string): string {
+  return LEDGER_LABELS[label] ?? label;
+}
+
 function kindVariant(label: string): React.ComponentProps<typeof Badge>["variant"] {
   switch (label) {
     case "buy":
@@ -68,7 +84,7 @@ export function AccountLedger({ rows, nextHref, prevHref }: AccountLedgerProps) 
   }
 
   return (
-    <Card title="Ledger">
+    <Card title="Movimientos">
       {banner && (
         <div
           role="alert"
@@ -80,21 +96,23 @@ export function AccountLedger({ rows, nextHref, prevHref }: AccountLedgerProps) 
       <DataTable<AccountLedgerRow>
         rows={rows}
         getRowKey={(r) => `${r.kind}:${r.id}`}
-        emptyState="No ledger entries for this account yet."
+        emptyState="Sin movimientos en esta cuenta."
         columns={[
           {
             key: "date",
-            header: "Date",
+            header: "Fecha",
             cell: (r) => formatDateTime(r.occurredAt),
           },
           {
             key: "kind",
-            header: "Kind",
-            cell: (r) => <Badge variant={kindVariant(r.label)}>{r.label}</Badge>,
+            header: "Tipo",
+            cell: (r) => (
+              <Badge variant={kindVariant(r.label)}>{ledgerLabel(r.label)}</Badge>
+            ),
           },
           {
             key: "detail",
-            header: "Detail",
+            header: "Detalle",
             cell: (r) => {
               if (r.kind === "transaction") {
                 return (
@@ -111,7 +129,7 @@ export function AccountLedger({ rows, nextHref, prevHref }: AccountLedgerProps) 
           },
           {
             key: "amount",
-            header: "Amount (EUR)",
+            header: "Importe (EUR)",
             align: "right",
             cell: (r) => {
               const color =
@@ -135,7 +153,7 @@ export function AccountLedger({ rows, nextHref, prevHref }: AccountLedgerProps) 
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label={`Delete ${r.label}`}
+                aria-label={`Eliminar ${ledgerLabel(r.label).toLowerCase()}`}
                 onClick={() => {
                   setBanner(null);
                   setTarget({ kind: r.kind, id: r.id, label: r.label });
@@ -148,24 +166,24 @@ export function AccountLedger({ rows, nextHref, prevHref }: AccountLedgerProps) 
         ]}
         footer={
           <>
-            <span>{rows.length} rows</span>
+            <span>{rows.length} filas</span>
             <span className="flex items-center gap-2">
               {prevHref ? (
                 <Button asChild variant="secondary" size="sm">
-                  <Link href={prevHref}>Prev</Link>
+                  <Link href={prevHref}>Anterior</Link>
                 </Button>
               ) : (
                 <Button variant="secondary" size="sm" disabled>
-                  Prev
+                  Anterior
                 </Button>
               )}
               {nextHref ? (
                 <Button asChild variant="secondary" size="sm">
-                  <Link href={nextHref}>Next</Link>
+                  <Link href={nextHref}>Siguiente</Link>
                 </Button>
               ) : (
                 <Button variant="secondary" size="sm" disabled>
-                  Next
+                  Siguiente
                 </Button>
               )}
             </span>
@@ -178,9 +196,9 @@ export function AccountLedger({ rows, nextHref, prevHref }: AccountLedgerProps) 
         onOpenChange={(next) => {
           if (!next) setTarget(null);
         }}
-        title={`Delete ${target?.label ?? "entry"}?`}
-        description="This reverses position and cash impact where applicable, and writes an audit event. This cannot be undone."
-        confirmLabel="Delete"
+        title={`¿Eliminar ${target ? ledgerLabel(target.label).toLowerCase() : "registro"}?`}
+        description="Revierte el impacto en posiciones y efectivo cuando aplica, y registra un evento de auditoría. No se puede deshacer."
+        confirmLabel="Eliminar"
         onConfirm={onConfirm}
       />
     </Card>

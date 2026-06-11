@@ -20,9 +20,8 @@ import {
 } from "./_shared";
 import { transactionFingerprint } from "./_fingerprint";
 import { rebuildAfterTradeMutation } from "../server/mutations";
-import { FxDeviationError, resolveFxForDate } from "./_fx";
-import { FxUnavailableError } from "../lib/fx";
-import { roundEur as round } from "../lib/money";
+import { FxDeviationError, FxManualRequiredError, requireManualFx } from "./_fx";
+import { round as roundNative, roundEur as round } from "../lib/money";
 
 import { createTransactionSchema } from "./createTransaction.schema";
 
@@ -37,7 +36,7 @@ export async function createTransaction(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -88,7 +87,7 @@ export async function createTransaction(
         }
       }
 
-      const fx = resolveFxForDate(tx, currency, data.tradeDate, data.fxRateToEur, {
+      const fx = requireManualFx(tx, currency, data.tradeDate, data.fxEurToCcy, {
         allowDeviation: data.allowFxDeviation,
       });
       const rate = fx.rate;
@@ -96,7 +95,9 @@ export async function createTransaction(
       const sign = data.side === "buy" ? -1 : 1;
       const tradeGrossAmount = data.quantity * data.priceNative;
       const tradeGrossAmountEur = round(tradeGrossAmount * rate);
-      const feesAmountEur = round(data.fees * rate);
+      // Broker fees are charged in EUR regardless of the asset's quote
+      // currency (European broker, EUR cash account) — never FX-convert them.
+      const feesAmountEur = round(data.fees);
       // cashImpactEur: buys reduce cash (incl. fees); sells add net proceeds.
       const cashImpactEur =
         sign * round(tradeGrossAmountEur) - feesAmountEur;
@@ -139,7 +140,9 @@ export async function createTransaction(
           tradeCurrency: currency,
           fxRateToEur: rate,
           fxSource: fx.source,
-          tradeGrossAmount: round(tradeGrossAmount),
+          // Native column at 8dp — 2dp EUR rounding corrupts crypto-quoted
+          // amounts (0.0032 BTC → 0.00) and breaks native×rate provenance.
+          tradeGrossAmount: roundNative(tradeGrossAmount, 8),
           tradeGrossAmountEur,
           cashImpactEur: round(cashImpactEur),
           feesAmount: data.fees,
@@ -162,7 +165,9 @@ export async function createTransaction(
             accountId: data.accountId,
             movementType: "trade",
             occurredAt: tradedAt,
-            nativeAmount: round(sign * tradeGrossAmount - data.fees),
+            // The EUR fee expressed in the movement's native currency, so the
+            // column never mixes units (fee EUR / rate = fee in native).
+            nativeAmount: roundNative(sign * tradeGrossAmount - feesAmountEur / rate, 8),
             currency,
             fxRateToEur: rate,
             fxSource: fx.source,
@@ -221,21 +226,17 @@ export async function createTransaction(
         error: {
           code: "duplicate",
           message:
-            "An identical transaction (same account, asset, date, side, quantity, price) already exists.",
+            "Ya existe una transacción idéntica (misma cuenta, activo, fecha, sentido, cantidad y precio).",
         },
       };
     }
-    if (err instanceof FxUnavailableError) {
+    if (err instanceof FxManualRequiredError) {
       return {
         ok: false,
         error: {
           code: "validation",
           message: err.message,
-          fieldErrors: {
-            fxRateToEur: [
-              `No stored FX rate for ${err.currency} on or before ${err.isoDate} — enter the broker's rate manually.`,
-            ],
-          },
+          fieldErrors: { fxEurToCcy: [err.message] },
         },
       };
     }
@@ -245,20 +246,28 @@ export async function createTransaction(
         error: {
           code: "fx_deviation",
           message: err.message,
-          fieldErrors: { fxRateToEur: [err.message] },
+          fieldErrors: { fxEurToCcy: [err.message] },
         },
       };
     }
     const message = err instanceof Error ? err.message : "Unknown DB error";
     if (message.startsWith("currency mismatch")) {
+      // The thrown message is an internal English sentinel; rebuild the
+      // user-facing sentence in Spanish from its parts.
+      const m = message.match(
+        /^currency mismatch: trade entered in (\S+) but (.+) is quoted in (\S+)$/,
+      );
+      const friendly = m
+        ? `La divisa no coincide: operación introducida en ${m[1]} pero ${m[2]} cotiza en ${m[3]}.`
+        : "La divisa no coincide con la divisa de cotización del activo.";
       return {
         ok: false,
-        error: { code: "validation", message, fieldErrors: { currency: [message] } },
+        error: { code: "validation", message: friendly, fieldErrors: { currency: [friendly] } },
       };
     }
     if (message.startsWith("oversell:")) {
       const held = Number(message.slice("oversell:".length));
-      const friendly = `Only ${Number(held.toFixed(8))} units are held across all accounts — cannot sell more than that.`;
+      const friendly = `Solo se poseen ${Number(held.toFixed(8))} unidades entre todas las cuentas — no puedes vender más.`;
       return {
         ok: false,
         error: { code: "validation", message: friendly, fieldErrors: { quantity: [friendly] } },
@@ -267,14 +276,17 @@ export async function createTransaction(
     if (message.startsWith("tax-lots:")) {
       // Defensive fallback: the FIFO replay still aborts the transaction on
       // chronology-level oversells the simple holdings sum can't see.
-      const friendly = `This sell exceeds the units held on that date (FIFO check): ${message}`;
+      const friendly = `Esta venta supera las unidades poseídas en esa fecha (comprobación FIFO): ${message}`;
       return {
         ok: false,
         error: { code: "validation", message: friendly, fieldErrors: { quantity: [friendly] } },
       };
     }
     if (message.startsWith("account not found") || message.startsWith("asset not found")) {
-      return { ok: false, error: { code: "not_found", message } };
+      const friendly = message.startsWith("account not found")
+        ? "cuenta no encontrada"
+        : "activo no encontrado";
+      return { ok: false, error: { code: "not_found", message: friendly } };
     }
     return { ok: false, error: { code: "db", message } };
   }

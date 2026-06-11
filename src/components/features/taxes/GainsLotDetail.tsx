@@ -5,13 +5,13 @@ import type { SaleReportRow } from "@/src/server/tax/report";
 export function GainsLotDetail({ sale }: { sale: SaleReportRow }) {
   return (
     <div className="rounded-md border border-border/40 bg-muted/40 p-3 text-sm">
-      <div className="mb-2 font-medium">FIFO lots consumed</div>
+      <div className="mb-2 font-medium">Lotes FIFO consumidos</div>
       <table className="w-full">
         <thead className="text-muted-foreground">
           <tr>
-            <th className="text-left">Acquired</th>
-            <th className="text-right">Qty</th>
-            <th className="text-right">Cost basis (EUR)</th>
+            <th className="text-left">Comprado el</th>
+            <th className="text-right">Cantidad</th>
+            <th className="text-right">Coste de adquisición</th>
           </tr>
         </thead>
         <tbody>
@@ -28,8 +28,9 @@ export function GainsLotDetail({ sale }: { sale: SaleReportRow }) {
       </table>
       {sale.nonComputableLossEur > 0 ? (
         <div className="mt-2 text-destructive">
-          Wash-sale (art. 33.5.f/g): non-computable portion{" "}
-          <SensitiveValue>{formatEur(sale.nonComputableLossEur)}</SensitiveValue>
+          Recompra de valores homogéneos (art. 43 NF 13/2013): pérdida aplazada de{" "}
+          <SensitiveValue>{formatEur(sale.nonComputableLossEur)}</SensitiveValue> — se
+          recupera al vender definitivamente los valores recomprados.
         </div>
       ) : null}
     </div>

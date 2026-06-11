@@ -16,9 +16,9 @@ export function TaxesHeader({ year, availableYears, sealed, hasUnvalued = false 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Taxes — {year}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Fiscalidad {year}</h1>
         <p className="text-sm text-muted-foreground">
-          Realized gains, dividends, informational-model status.
+          Declaración: las cifras a teclear en Rentanet. Previsión: lo que saldrá.
         </p>
       </div>
       <div className="flex items-center gap-3">

@@ -414,68 +414,59 @@ describe("createTransaction FX provenance and date validation", () => {
     }
   });
 
-  it("rejects a non-EUR trade when no FX rate exists, writing nothing", async () => {
+  it("rejects a non-EUR trade without a manual rate — stored daily rates never apply", async () => {
     const db = makeDb();
     const { accountId, assetId } = await setupUsd(db);
+    // A stored daily rate EXISTS — it must still be rejected: FX is always manual.
+    db.insert(schema.fxRates).values({
+      id: "01TESTFXHIST00000000000000", currency: "USD", date: "2026-02-03",
+      rateToEur: 0.9, source: "yahoo-fx", createdAt: Date.now(),
+    }).run();
     const before = db.select().from(schema.assetTransactions).all().length;
     const result = await createTransaction(usdBuy(accountId, assetId), db);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("validation");
-      expect(result.error.fieldErrors?.fxRateToEur?.[0]).toMatch(/FX rate/);
+      expect(result.error.fieldErrors?.fxEurToCcy?.[0]).toMatch(/Obligatorio|tipo/i);
     }
     expect(db.select().from(schema.assetTransactions).all().length).toBe(before);
   });
 
-  it("stamps fxSource=historical when the trade-date rate exists", async () => {
+  it("the manual EUR→CCY rate is inverted once and stamps fxSource=explicit everywhere", async () => {
     const db = makeDb();
     const { accountId, assetId } = await setupUsd(db);
     db.insert(schema.fxRates).values({
-      id: "01TESTFXHIST00000000000000", currency: "USD", date: "2026-02-03",
-      rateToEur: 0.9, source: "yahoo-fx", createdAt: Date.now(),
+      id: "01TESTFXEXPL00000000000000", currency: "USD", date: "2026-02-03",
+      rateToEur: 0.88, source: "yahoo-fx", createdAt: Date.now(),
     }).run();
-    const result = await createTransaction(usdBuy(accountId, assetId), db);
+    // DEGIRO direction: 1 EUR = 1.1364 USD → internal rate 1/1.1364 ≈ 0.88.
+    const result = await createTransaction(
+      { ...usdBuy(accountId, assetId), fxEurToCcy: 1 / 0.88 }, db,
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.data.fxSource).toBe("historical");
-      expect(result.data.tradeGrossAmountEur).toBeCloseTo(900, 2);
-    }
-  });
-
-  it("falls back to the latest earlier rate and stamps fxSource=latest on trade AND cash movement", async () => {
-    const db = makeDb();
-    const { accountId, assetId } = await setupUsd(db);
-    db.insert(schema.fxRates).values({
-      id: "01TESTFXSTALE0000000000000", currency: "USD", date: "2026-01-20",
-      rateToEur: 0.95, source: "yahoo-fx", createdAt: Date.now(),
-    }).run();
-    const result = await createTransaction(usdBuy(accountId, assetId), db);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.fxSource).toBe("latest");
+      expect(result.data.fxSource).toBe("explicit");
+      expect(result.data.fxRateToEur).toBeCloseTo(0.88, 9);
+      expect(result.data.tradeGrossAmountEur).toBeCloseTo(880, 2);
       const cash = db
         .select()
         .from(schema.accountCashMovements)
         .where(eq(schema.accountCashMovements.externalReference, result.data.id))
         .get();
-      expect(cash?.fxSource).toBe("latest");
+      expect(cash?.fxSource).toBe("explicit");
     }
   });
 
-  it("explicit rate beats the stored rate and stamps fxSource=explicit", async () => {
+  it("accepts a manual rate when no daily reference exists (guard skipped)", async () => {
     const db = makeDb();
     const { accountId, assetId } = await setupUsd(db);
-    db.insert(schema.fxRates).values({
-      id: "01TESTFXEXPL00000000000000", currency: "USD", date: "2026-02-03",
-      rateToEur: 0.9, source: "yahoo-fx", createdAt: Date.now(),
-    }).run();
     const result = await createTransaction(
-      { ...usdBuy(accountId, assetId), fxRateToEur: 0.88 }, db,
+      { ...usdBuy(accountId, assetId), fxEurToCcy: 1.15 }, db,
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.fxSource).toBe("explicit");
-      expect(result.data.tradeGrossAmountEur).toBeCloseTo(880, 2);
+      expect(result.data.tradeGrossAmountEur).toBeCloseTo(1000 / 1.15, 2);
     }
   });
 

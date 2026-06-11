@@ -69,7 +69,7 @@ describe("H4 — trade currency must match the asset's quote currency", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("validation");
-    expect(result.error.fieldErrors?.currency?.[0]).toMatch(/quoted in USD/);
+    expect(result.error.fieldErrors?.currency?.[0]).toMatch(/cotiza en USD/);
   });
 
   it("accepts a trade in the asset's own currency", async () => {
@@ -84,13 +84,14 @@ describe("H4 — trade currency must match the asset's quote currency", () => {
         quantity: 2,
         priceNative: 100,
         currency: "USD",
+        fxEurToCcy: 1 / 0.92,
       },
       db,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.data.fxRateToEur).toBe(0.92);
-    expect(result.data.fxSource).toBe("historical");
+    expect(result.data.fxRateToEur).toBeCloseTo(0.92, 9);
+    expect(result.data.fxSource).toBe("explicit");
   });
 });
 
@@ -112,14 +113,14 @@ describe("H3 — explicit FX rates that deviate from the stored rate", () => {
         quantity: 1,
         priceNative: 100,
         currency: "USD",
-        fxRateToEur: 1.09, // EUR→USD typed by mistake
+        fxEurToCcy: 0.92, // USD→EUR typed by mistake (the field is EUR→USD)
       },
       db,
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("fx_deviation");
-    expect(result.error.message).toMatch(/inverse/);
+    expect(result.error.message).toMatch(/inverso/);
   });
 
   it("accepts the deviant rate when explicitly confirmed", async () => {
@@ -134,18 +135,18 @@ describe("H3 — explicit FX rates that deviate from the stored rate", () => {
         quantity: 1,
         priceNative: 100,
         currency: "USD",
-        fxRateToEur: 1.09,
+        fxEurToCcy: 0.92,
         allowFxDeviation: true,
       },
       db,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.data.fxRateToEur).toBe(1.09);
+    expect(result.data.fxRateToEur).toBeCloseTo(1 / 0.92, 9);
     expect(result.data.fxSource).toBe("explicit");
   });
 
-  it("accepts a manual rate close to the stored one without ceremony", async () => {
+  it("accepts a manual rate close to the daily reference without ceremony", async () => {
     const { accountId, assetId } = await setup(db, "USD");
     seedFxRate(db, "USD", "2026-01-15", 0.92);
     const result = await createTransaction(
@@ -157,7 +158,7 @@ describe("H3 — explicit FX rates that deviate from the stored rate", () => {
         quantity: 1,
         priceNative: 100,
         currency: "USD",
-        fxRateToEur: 0.925,
+        fxEurToCcy: 1.081, // ≈ 1/0.925 — within tolerance of the 1/0.92 reference
       },
       db,
     );
@@ -197,7 +198,7 @@ describe("H5 — oversell surfaces as a friendly quantity error", () => {
     expect(sell.ok).toBe(false);
     if (sell.ok) return;
     expect(sell.error.code).toBe("validation");
-    expect(sell.error.fieldErrors?.quantity?.[0]).toMatch(/Only 5 units/);
+    expect(sell.error.fieldErrors?.quantity?.[0]).toMatch(/Solo se poseen 5/);
   });
 });
 
@@ -223,7 +224,7 @@ describe("M2 — dividend withholding sanity", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("validation");
-    expect(result.error.fieldErrors?.withholdingOrigenNative?.[0]).toMatch(/cannot exceed/);
+    expect(result.error.fieldErrors?.withholdingOrigenNative?.[0]).toMatch(/no puede superar/);
   });
 
   it("rejects destination withholding that drives the net negative", async () => {
@@ -236,13 +237,14 @@ describe("M2 — dividend withholding sanity", () => {
         tradeDate: "2026-01-15",
         grossNative: 10, // 9 EUR gross
         currency: "USD",
+        fxEurToCcy: 1 / 0.9,
         withholdingDestinoEur: 50,
       },
       db,
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.fieldErrors?.withholdingDestinoEur?.[0]).toMatch(/exceeds gross/);
+    expect(result.error.fieldErrors?.withholdingDestinoEur?.[0]).toMatch(/supera el dividendo bruto/);
   });
 });
 
@@ -267,7 +269,7 @@ describe("M3/M7 — cash movement sign and duplicates", () => {
       );
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.fieldErrors?.amountNative?.[0]).toMatch(/positive/);
+      expect(result.error.fieldErrors?.amountNative?.[0]).toMatch(/positivo/);
     }
   });
 
@@ -335,6 +337,7 @@ describe("H1/H2 — swap legs are honest about units and die together", () => {
         quantity: 1,
         priceNative: 1,
         currency: "BTC",
+        fxEurToCcy: 1 / 40000, // manual, broker direction: 1 EUR = 0.000025 BTC
       },
       db,
     );

@@ -10,13 +10,13 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export const isoDateSchema = z
   .string()
-  .regex(ISO_DATE_RE, "must be ISO yyyy-MM-dd")
+  .regex(ISO_DATE_RE, "debe ser una fecha ISO aaaa-MM-dd")
   .refine((d) => toIsoDate(new Date(`${d}T12:00:00.000Z`)) === d, {
-    message: "not a valid calendar date",
+    message: "no es una fecha de calendario válida",
   });
 
 /** Entry-form date: valid calendar date that is not in the future. */
 export const isoDatePastSchema = isoDateSchema.refine(
   (d) => d <= toIsoDate(new Date()),
-  { message: "date cannot be in the future" },
+  { message: "la fecha no puede ser futura" },
 );

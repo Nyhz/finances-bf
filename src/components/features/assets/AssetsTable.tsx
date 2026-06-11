@@ -16,10 +16,21 @@ import { SetManualPriceModal } from "./SetManualPriceModal";
 
 type ModalKind = "edit" | "price" | "deactivate" | "delete" | null;
 
+// Display-only labels — the stored assetType values stay in English.
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  etf: "ETF",
+  stock: "Acción",
+  bond: "Bono",
+  crypto: "Cripto",
+  fund: "Fondo",
+  "cash-equivalent": "Equivalente de efectivo",
+  other: "Otro",
+};
+
 function FreshnessCell({ row }: { row: AssetListRow }) {
   const f = row.freshness;
   if (!f) {
-    return <span className="text-xs text-muted-foreground">No price</span>;
+    return <span className="text-xs text-muted-foreground">Sin precio</span>;
   }
   const when = new Date(f.pricedAt).toISOString().slice(0, 10);
   const KNOWN: Record<string, { label: string; variant: "success" | "neutral" | "warning" }> = {
@@ -77,23 +88,27 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
         rows={rows}
         getRowKey={(r) => r.id}
         columns={[
-          { key: "symbol", header: "Symbol", cell: (r) => r.symbol ?? "—" },
-          { key: "name", header: "Name", cell: (r) => r.name },
-          { key: "type", header: "Type", cell: (r) => r.assetType },
-          { key: "currency", header: "Currency", cell: (r) => r.currency },
+          { key: "symbol", header: "Símbolo", cell: (r) => r.symbol ?? "—" },
+          { key: "name", header: "Nombre", cell: (r) => r.name },
+          {
+            key: "type",
+            header: "Tipo",
+            cell: (r) => ASSET_TYPE_LABELS[r.assetType] ?? r.assetType,
+          },
+          { key: "currency", header: "Divisa", cell: (r) => r.currency },
           {
             key: "price",
-            header: "Price",
+            header: "Precio",
             cell: (r) => <FreshnessCell row={r} />,
           },
           {
             key: "active",
-            header: "Status",
+            header: "Estado",
             cell: (r) =>
               r.isActive ? (
-                <Badge variant="success">Active</Badge>
+                <Badge variant="success">Activo</Badge>
               ) : (
-                <Badge>Inactive</Badge>
+                <Badge>Inactivo</Badge>
               ),
           },
           {
@@ -106,7 +121,7 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={`Actions for ${r.name}`}
+                    aria-label={`Acciones para ${r.name}`}
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
@@ -117,17 +132,17 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
                     sideOffset={4}
                     className="z-50 min-w-[10rem] rounded-md border border-border bg-card p-1 text-sm shadow-md"
                   >
-                    <MenuItem onSelect={() => open("edit", r)}>Edit</MenuItem>
-                    <MenuItem onSelect={() => open("price", r)}>Set manual price</MenuItem>
+                    <MenuItem onSelect={() => open("edit", r)}>Editar</MenuItem>
+                    <MenuItem onSelect={() => open("price", r)}>Fijar precio manual</MenuItem>
                     <MenuItem
                       onSelect={() => open("deactivate", r)}
                       disabled={!r.isActive}
                       danger
                     >
-                      Deactivate
+                      Desactivar
                     </MenuItem>
                     <MenuItem onSelect={() => open("delete", r)} danger>
-                      Delete
+                      Eliminar
                     </MenuItem>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -160,9 +175,9 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
         onOpenChange={(next) => {
           if (!next) closeModal();
         }}
-        title={`Deactivate ${active?.name ?? "asset"}?`}
-        description="The asset stays in history but is hidden from new transactions."
-        confirmLabel="Deactivate"
+        title={`¿Desactivar ${active?.name ?? "el activo"}?`}
+        description="El activo permanece en el historial pero se oculta en las nuevas transacciones."
+        confirmLabel="Desactivar"
         onConfirm={confirmDeactivate}
       />
 
@@ -174,13 +189,13 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
             setDeleteError(null);
           }
         }}
-        title={`Delete ${active?.name ?? "asset"}?`}
+        title={`¿Eliminar ${active?.name ?? "el activo"}?`}
         description={
           <div className="flex flex-col gap-2">
             <p>
-              Permanently deletes the asset together with every price
-              valuation and position row for it. Refused if any transaction
-              still references the asset — delete those first.
+              Elimina permanentemente el activo junto con todas sus
+              valoraciones de precio y filas de posición. Se rechaza si alguna
+              transacción aún referencia el activo — elimina esas primero.
             </p>
             {deleteError && (
               <p className="text-sm font-medium text-destructive">
@@ -189,7 +204,7 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
             )}
           </div>
         }
-        confirmLabel="Delete"
+        confirmLabel="Eliminar"
         confirmVariant="danger"
         onConfirm={confirmDelete}
       />

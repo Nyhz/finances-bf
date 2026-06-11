@@ -25,7 +25,7 @@ export async function deleteCashMovement(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -74,10 +74,20 @@ export async function deleteCashMovement(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";
     if (message.startsWith("cash movement not found")) {
-      return { ok: false, error: { code: "not_found", message } };
+      return {
+        ok: false,
+        error: { code: "not_found", message: "movimiento de efectivo no encontrado" },
+      };
     }
     if (message.startsWith("trade cash movements")) {
-      return { ok: false, error: { code: "conflict", message } };
+      return {
+        ok: false,
+        error: {
+          code: "conflict",
+          message:
+            "Los movimientos de efectivo de una operación se eliminan borrando la transacción.",
+        },
+      };
     }
     return { ok: false, error: { code: "db", message } };
   }

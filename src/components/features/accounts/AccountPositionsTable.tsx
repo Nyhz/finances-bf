@@ -8,30 +8,30 @@ import type { PositionRow } from "@/src/server/positions";
 export function AccountPositionsTable({ rows }: { rows: PositionRow[] }) {
   if (rows.length === 0) {
     return (
-      <Card title="Positions">
+      <Card title="Posiciones">
         <StatesBlock
           mode="empty"
-          title="No positions"
-          description="This account holds no open positions."
+          title="Sin posiciones"
+          description="Esta cuenta no tiene posiciones abiertas."
         />
       </Card>
     );
   }
 
   return (
-    <Card title="Positions">
+    <Card title="Posiciones">
       <DataTable<PositionRow>
         rows={rows}
         getRowKey={(r) => r.position.id}
         columns={[
           {
             key: "asset",
-            header: "Asset",
+            header: "Activo",
             cell: (r) => r.asset.symbol ?? r.asset.name,
           },
           {
             key: "quantity",
-            header: "Quantity",
+            header: "Cantidad",
             align: "right",
             cell: (r) => (
               <span className="tabular-nums">{r.position.quantity.toFixed(4)}</span>
@@ -39,7 +39,7 @@ export function AccountPositionsTable({ rows }: { rows: PositionRow[] }) {
           },
           {
             key: "avgCost",
-            header: "Avg Cost (EUR)",
+            header: "Coste medio (EUR)",
             align: "right",
             cell: (r) => (
               <SensitiveValue>{formatEur(r.position.averageCost)}</SensitiveValue>
@@ -47,7 +47,7 @@ export function AccountPositionsTable({ rows }: { rows: PositionRow[] }) {
           },
           {
             key: "marketValue",
-            header: "Market Value (EUR)",
+            header: "Valor de mercado (EUR)",
             align: "right",
             cell: (r) =>
               r.valuationEur == null ? (
@@ -58,7 +58,7 @@ export function AccountPositionsTable({ rows }: { rows: PositionRow[] }) {
           },
           {
             key: "pnl",
-            header: "Unrealized P/L (EUR)",
+            header: "P/G no realizado (EUR)",
             align: "right",
             cell: (r) => {
               if (r.valuationEur == null) {

@@ -22,12 +22,12 @@ const createAccountSchema = z.object({
   currency: z
     .string()
     .trim()
-    .regex(/^[A-Z]{3}$/, "Currency must be a 3-letter ISO 4217 code")
+    .regex(/^[A-Z]{3}$/, "La divisa debe ser un código ISO 4217 de 3 letras")
     .default("EUR"),
   openingBalanceNative: z
     .number()
     .finite()
-    .min(0, "Opening balance must be zero or positive")
+    .min(0, "El saldo inicial debe ser cero o positivo")
     .default(0),
   notes: z.string().trim().max(500).optional(),
 });
@@ -45,7 +45,7 @@ export async function createAccount(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -75,7 +75,7 @@ export async function createAccount(
             .orderBy(desc(fxRates.date))
             .get();
           if (!latest) {
-            throw new Error(`No FX rate available for ${currency} on ${today}`);
+            throw new Error(`No hay tipo de cambio disponible para ${currency} a fecha ${today}`);
           }
           rate = latest.rateToEur;
           fxSource = "latest";

@@ -70,9 +70,9 @@ export default async function AuditPage({
   return (
     <div className="flex flex-col gap-6 p-8">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Auditoría</h1>
         <p className="text-sm text-muted-foreground">
-          Chronological log of mutations across accounts, assets, and transactions.
+          Registro cronológico de mutaciones en cuentas, activos y transacciones.
         </p>
       </header>
 
@@ -82,38 +82,38 @@ export default async function AuditPage({
         hasAnyFilter || sp.cursor ? (
           <StatesBlock
             mode="empty"
-            title="No audit events match these filters"
-            description="Try broadening the entity type, clearing the date range, or resetting the filters."
+            title="Ningún evento de auditoría coincide con estos filtros"
+            description="Prueba a ampliar el tipo de entidad, quitar el rango de fechas o restablecer los filtros."
           />
         ) : (
           <StatesBlock
             mode="empty"
-            title="No audit events yet"
-            description="Every mutation writes an audit event. They appear here once you create or edit data."
+            title="Sin eventos de auditoría"
+            description="Cada mutación escribe un evento de auditoría. Aparecerán aquí en cuanto crees o edites datos."
           />
         )
       ) : (
         <div className="flex flex-col gap-3">
           <AuditTable rows={result.items} />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{result.items.length} rows</span>
+            <span>{result.items.length} filas</span>
             <span className="flex items-center gap-2">
               {prevHref ? (
                 <Button asChild variant="secondary" size="sm">
-                  <Link href={prevHref}>Prev</Link>
+                  <Link href={prevHref}>Anterior</Link>
                 </Button>
               ) : (
                 <Button variant="secondary" size="sm" disabled>
-                  Prev
+                  Anterior
                 </Button>
               )}
               {nextHref ? (
                 <Button asChild variant="secondary" size="sm">
-                  <Link href={nextHref}>Next</Link>
+                  <Link href={nextHref}>Siguiente</Link>
                 </Button>
               ) : (
                 <Button variant="secondary" size="sm" disabled>
-                  Next
+                  Siguiente
                 </Button>
               )}
             </span>

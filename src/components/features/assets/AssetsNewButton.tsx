@@ -6,7 +6,7 @@ import { Button } from "@/src/components/ui/Button";
 import { CreateAssetModal } from "./CreateAssetModal";
 
 export function AssetsNewButton({
-  label = "New asset",
+  label = "Nuevo activo",
   size = "md",
 }: {
   label?: string;

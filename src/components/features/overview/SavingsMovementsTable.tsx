@@ -14,8 +14,20 @@ function formatDate(ms: number): string {
   });
 }
 
+// Display-only labels — the raw movementType values stay English in the DB.
+const TYPE_LABELS: Record<string, string> = {
+  deposit: "Ingreso",
+  withdrawal: "Retirada",
+  interest: "Intereses",
+  fee: "Comisión",
+  dividend: "Dividendo",
+  trade: "Operación",
+  "transfer-in": "Transferencia recibida",
+  "transfer-out": "Transferencia enviada",
+};
+
 function badgeForType(type: string) {
-  const label = type.charAt(0).toUpperCase() + type.slice(1);
+  const label = TYPE_LABELS[type] ?? type;
   const color =
     type === "deposit" || type === "interest"
       ? "text-success"
@@ -32,34 +44,34 @@ export function SavingsMovementsTable({
 }) {
   if (rows.length === 0) {
     return (
-      <Card title="Recent movements">
+      <Card title="Movimientos recientes">
         <StatesBlock
           mode="empty"
-          title="No movements"
-          description="No cash movements in the selected range."
+          title="Sin movimientos"
+          description="No hay movimientos de efectivo en el periodo seleccionado."
         />
       </Card>
     );
   }
   return (
-    <Card title="Recent movements">
+    <Card title="Movimientos recientes">
       <DataTable<AccountCashMovement>
         rows={rows}
         getRowKey={(r) => r.id}
         columns={[
           {
             key: "date",
-            header: "Date",
+            header: "Fecha",
             cell: (r) => formatDate(r.occurredAt),
           },
           {
             key: "type",
-            header: "Type",
+            header: "Tipo",
             cell: (r) => badgeForType(r.movementType),
           },
           {
             key: "description",
-            header: "Description",
+            header: "Descripción",
             cell: (r) => (
               <span className="text-muted-foreground">
                 {r.description ?? r.externalReference ?? "—"}
@@ -68,7 +80,7 @@ export function SavingsMovementsTable({
           },
           {
             key: "amount",
-            header: "Amount",
+            header: "Importe",
             align: "right",
             cell: (r) => {
               const color =

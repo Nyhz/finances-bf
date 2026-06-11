@@ -64,7 +64,7 @@ export function DataTable<T>({
                   colSpan={columns.length}
                   className="px-4 py-10 text-center text-muted-foreground"
                 >
-                  {emptyState ?? "No data"}
+                  {emptyState ?? "Sin datos"}
                 </td>
               </tr>
             ) : (

@@ -16,7 +16,7 @@ export function WipeAppCard() {
   async function handleConfirm() {
     setError(null);
     if (confirmation !== "WIPE") {
-      setError("Type WIPE to confirm");
+      setError("Escribe WIPE para confirmar");
       throw new Error("confirmation missing");
     }
     const result = await wipeApp({ confirmation });
@@ -29,16 +29,17 @@ export function WipeAppCard() {
   }
 
   return (
-    <Card title="Danger zone">
+    <Card title="Zona de peligro">
       <div className="flex flex-col gap-3 p-4">
         <p className="text-sm text-muted-foreground">
-          Wipe everything except the raw price-history feed (Yahoo /
-          CoinGecko bars) and the asset catalog. Accounts, transactions,
-          valuations, FX rates, imports, tax rows and audit entries all go.
+          Borra todo excepto el histórico de precios en bruto (barras de
+          Yahoo / CoinGecko) y el catálogo de activos. Cuentas, transacciones,
+          valoraciones, tipos de cambio, filas fiscales y entradas de
+          auditoría desaparecen.
         </p>
         <div>
           <Button variant="danger" onClick={() => setOpen(true)}>
-            Wipe app
+            Borrado total
           </Button>
         </div>
       </div>
@@ -52,19 +53,20 @@ export function WipeAppCard() {
             setError(null);
           }
         }}
-        title="Wipe the entire app?"
+        title="¿Borrado total de la aplicación?"
         description={
           <div className="flex flex-col gap-3">
             <p>
-              Permanently deletes everything except the asset catalog and the
-              raw price-history feed (Yahoo / CoinGecko bars). Accounts,
-              transactions, cash movements, valuations, FX rates, imports,
-              tax rows and audit entries are all wiped.
+              Elimina permanentemente todo excepto el catálogo de activos y el
+              histórico de precios en bruto (barras de Yahoo / CoinGecko).
+              Cuentas, transacciones, movimientos de efectivo, valoraciones,
+              tipos de cambio, filas fiscales y entradas de auditoría se
+              borran por completo.
             </p>
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">
-                Type <span className="font-mono font-semibold">WIPE</span> to
-                confirm:
+                Escribe <span className="font-mono font-semibold">WIPE</span>{" "}
+                para confirmar:
               </span>
               <input
                 type="text"
@@ -79,7 +81,7 @@ export function WipeAppCard() {
             )}
           </div>
         }
-        confirmLabel="Wipe everything"
+        confirmLabel="Borrar todo"
         confirmVariant="danger"
         onConfirm={handleConfirm}
       />

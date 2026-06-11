@@ -49,7 +49,7 @@ export function SensitiveToggle() {
       variant="ghost"
       size="icon"
       onClick={toggle}
-      aria-label={hidden ? "Reveal values" : "Hide values"}
+      aria-label={hidden ? "Mostrar valores" : "Ocultar valores"}
     >
       {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
     </Button>

@@ -96,7 +96,7 @@ describe("deleteAccount", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("conflict");
-    expect(result.error.message).toMatch(/transactions or cash movements/);
+    expect(result.error.message).toMatch(/transacciones o movimientos de efectivo/);
 
     const remaining = await db.select().from(schema.accounts).all();
     expect(remaining).toHaveLength(1);

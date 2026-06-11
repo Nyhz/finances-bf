@@ -1,87 +1,71 @@
-import { and, eq, gt, gte, lte } from "drizzle-orm";
-import { ulid } from "ulid";
-import { roundEur } from "../../lib/money";
-import { DAY_MS } from "../../lib/time";
-import type { db, DB } from "../../db/client";
-import {
-  assetTransactions,
-  assets,
-  taxLots,
-  taxWashSaleAdjustments,
-  type AssetTransaction,
-} from "../../db/schema";
+/**
+ * Norma antiaplicación de pérdidas (art. 43.g/h NF 13/2013 Bizkaia).
+ *
+ * Una pérdida por transmisión de valores homogéneos no se computa cuando se
+ * adquieren valores homogéneos dentro de la ventana legal alrededor de la
+ * venta — DOS MESES de calendario antes/después para valores cotizados y
+ * criptoactivos fungibles, UN AÑO para valores no cotizados. La pérdida
+ * diferida se integra "a medida que se transmitan los valores que permanezcan
+ * en el patrimonio": aquí, sumándola a la base de coste del lote absorbente,
+ * de modo que la venta definitiva de ese lote la recupera automáticamente.
+ *
+ * La detección y el diferimiento viven en el replay cronológico de
+ * `recomputeLotsForAsset` (lots.ts). Este módulo aporta los helpers puros.
+ */
 
-// Accepts a top-level DB handle or a Drizzle transaction handle.
-type Tx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
-type DbOrTx = DB | Tx;
+export type WashSaleWindow = {
+  /** Months on each side of the sale (calendar months, fecha-a-fecha). */
+  months: number;
+  /** Legacy label persisted in tax_wash_sale_adjustments.window_days. */
+  daysLabel: number;
+};
 
+export function washSaleWindowForAssetClass(assetClassTax: string | null): WashSaleWindow {
+  return assetClassTax === "unlisted_security"
+    ? { months: 12, daysLabel: 365 }
+    : { months: 2, daysLabel: 60 };
+}
 
-export function checkSaleAtLoss(
-  tx: DbOrTx,
-  saleRow: AssetTransaction,
-  proceedsEur: number,
-  consumedCostEur: number,
-  feesEur: number,
-): void {
-  const loss = proceedsEur - consumedCostEur - feesEur;
-  if (loss >= 0) return;
+/**
+ * Civil "de fecha a fecha" month arithmetic in UTC. When the target month is
+ * shorter (31 Jan + 1 month), the day clamps to the month's last day instead
+ * of spilling into the next month.
+ */
+export function addCalendarMonths(ms: number, months: number): number {
+  const d = new Date(ms);
+  const day = d.getUTCDate();
+  const target = new Date(ms);
+  target.setUTCDate(1);
+  target.setUTCMonth(target.getUTCMonth() + months);
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return target.getTime();
+}
 
-  const asset = tx.select().from(assets).where(eq(assets.id, saleRow.assetId)).get();
-  const windowDays = asset?.assetClassTax === "unlisted_security" ? 365 : 60;
-  const windowMs = windowDays * DAY_MS;
+/**
+ * Split `totalEur` (cents-exact) across `weights` proportionally so the cent
+ * shares sum EXACTLY to the total (largest-remainder method). Rounding each
+ * share independently can drift the sum by a cent per participant — never
+ * acceptable in a figure that reaches the tax report.
+ */
+export function allocateLargestRemainder(totalEur: number, weights: number[]): number[] {
+  const totalCents = Math.round(totalEur * 100);
+  const weightSum = weights.reduce((s, w) => s + w, 0);
+  if (weightSum <= 0 || totalCents === 0) return weights.map(() => 0);
 
-  const acquisitions = tx
-    .select()
-    .from(assetTransactions)
-    .where(
-      and(
-        eq(assetTransactions.assetId, saleRow.assetId),
-        eq(assetTransactions.transactionType, "buy"),
-        gte(assetTransactions.tradedAt, saleRow.tradedAt - windowMs),
-        lte(assetTransactions.tradedAt, saleRow.tradedAt + windowMs),
-      ),
-    )
-    .all();
+  const exact = weights.map((w) => (totalCents * w) / weightSum);
+  const floored = exact.map((c) => Math.floor(c));
+  let leftover = totalCents - floored.reduce((s, c) => s + c, 0);
 
-  if (acquisitions.length === 0) return;
-
-  // Only consider acquisitions that still have an open lot after the sell
-  // (the original lots consumed by the FIFO sell are fully drained and won't
-  // have a surviving lot to absorb the deferral).
-  const acqsWithLots = acquisitions.flatMap((acq) => {
-    const lot = tx
-      .select()
-      .from(taxLots)
-      .where(and(eq(taxLots.originTransactionId, acq.id), gt(taxLots.remainingQty, 0)))
-      .get();
-    if (!lot) return [];
-    return [{ acq, lot }];
-  });
-
-  if (acqsWithLots.length === 0) return;
-
-  const soldQty = saleRow.quantity;
-  const acquiredQty = acqsWithLots.reduce((sum, { acq }) => sum + acq.quantity, 0);
-  const absorbingQty = Math.min(soldQty, acquiredQty);
-  if (absorbingQty <= 0) return;
-
-  const totalDisallowed = Math.abs(loss) * (absorbingQty / soldQty);
-
-  for (const { acq, lot } of acqsWithLots) {
-    const share = roundEur((acq.quantity / acquiredQty) * totalDisallowed);
-    if (share <= 0.005) continue;
-
-    tx.insert(taxWashSaleAdjustments).values({
-      id: ulid(),
-      saleTransactionId: saleRow.id,
-      absorbingLotId: lot.id,
-      disallowedLossEur: share,
-      windowDays,
-    }).run();
-
-    tx.update(taxLots)
-      .set({ deferredLossAddedEur: roundEur((lot.deferredLossAddedEur ?? 0) + share) })
-      .where(eq(taxLots.id, lot.id))
-      .run();
+  const order = exact
+    .map((c, i) => ({ i, frac: c - Math.floor(c) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (const { i } of order) {
+    if (leftover <= 0) break;
+    floored[i] += 1;
+    leftover -= 1;
   }
+  return floored.map((c) => c / 100);
 }

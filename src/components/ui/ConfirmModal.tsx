@@ -20,8 +20,8 @@ export function ConfirmModal({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel = "Confirmar",
+  cancelLabel = "Cancelar",
   confirmVariant = "danger",
   onConfirm,
 }: ConfirmModalProps) {
@@ -57,7 +57,7 @@ export function ConfirmModal({
             onClick={handleConfirm}
             disabled={pending}
           >
-            {pending ? "Working…" : confirmLabel}
+            {pending ? "Procesando…" : confirmLabel}
           </Button>
         </>
       }

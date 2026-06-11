@@ -5,7 +5,7 @@ const STYLES: Record<
   { label: string; className: string; accent: string }
 > = {
   crypto: {
-    label: "Crypto",
+    label: "Cripto",
     className:
       "bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/25",
     accent: "bg-violet-500/70",
@@ -17,31 +17,31 @@ const STYLES: Record<
     accent: "bg-sky-500/70",
   },
   stock: {
-    label: "Stock",
+    label: "Acción",
     className:
       "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25",
     accent: "bg-amber-500/70",
   },
   bond: {
-    label: "Bond",
+    label: "Bono",
     className:
       "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/25",
     accent: "bg-emerald-500/70",
   },
   fund: {
-    label: "Fund",
+    label: "Fondo",
     className:
       "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/25",
     accent: "bg-rose-500/70",
   },
   "cash-equivalent": {
-    label: "Cash",
+    label: "Efectivo",
     className:
       "bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/25",
     accent: "bg-slate-500/70",
   },
   other: {
-    label: "Other",
+    label: "Otro",
     className:
       "bg-zinc-500/15 text-zinc-700 dark:text-zinc-300 border-zinc-500/25",
     accent: "bg-zinc-500/70",
@@ -50,6 +50,11 @@ const STYLES: Record<
 
 export function assetTypeAccentClass(type: string): string {
   return (STYLES[type] ?? STYLES.other).accent;
+}
+
+/** Display label for a raw asset-type value ("stock" → "Acción"). */
+export function assetTypeLabel(type: string): string {
+  return STYLES[type]?.label ?? type;
 }
 
 export function AssetTypeStripe({ type }: { type: string }) {

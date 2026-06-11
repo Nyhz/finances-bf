@@ -23,7 +23,8 @@ type FormState = {
   occurredAt: string;
   amount: string;
   currency: string;
-  fxRateToEur: string;
+  /** Broker's direction (DEGIRO): 1 EUR = X CCY. Always typed by hand. */
+  fxEurToCcy: string;
   description: string;
 };
 
@@ -34,8 +35,15 @@ function todayIso(): string {
   ).padStart(2, "0")}`;
 }
 
+// Display-only labels — the submitted kind values stay in English.
+const KIND_LABELS: Record<string, string> = {
+  deposit: "Ingreso",
+  withdrawal: "Retirada",
+  interest: "Interés",
+};
+
 function labelForKind(kind: string): string {
-  return kind.charAt(0).toUpperCase() + kind.slice(1);
+  return KIND_LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
 export function CreateCashMovementModal({
@@ -60,7 +68,7 @@ export function CreateCashMovementModal({
       occurredAt: todayIso(),
       amount: "",
       currency: picked?.currency ?? "EUR",
-      fxRateToEur: "",
+      fxEurToCcy: "",
       description: "",
     };
   }, [accounts, defaultAccountId]);
@@ -134,14 +142,14 @@ export function CreateCashMovementModal({
     if (extra?.allowDuplicate) acceptedRef.current.duplicate = true;
     if (extra?.allowFxDeviation) acceptedRef.current.fxDeviation = true;
 
-    const fxRate = form.fxRateToEur.trim();
+    const fxRate = form.fxEurToCcy.trim();
     const payload = {
       accountId: form.accountId,
       kind: form.kind,
       occurredAt: form.occurredAt,
       amountNative: Number(form.amount),
       currency: form.currency.toUpperCase(),
-      fxRateToEur: fxRate ? Number(fxRate) : undefined,
+      fxEurToCcy: fxRate ? Number(fxRate) : undefined,
       description: form.description.trim() ? form.description : undefined,
       allowDuplicate: acceptedRef.current.duplicate,
       allowFxDeviation: acceptedRef.current.fxDeviation,
@@ -176,15 +184,15 @@ export function CreateCashMovementModal({
 
   const signHint =
     form.kind === "withdrawal"
-      ? "Amount is signed as a debit (balance decreases)."
-      : "Amount is signed as a credit (balance increases).";
+      ? "El importe se registra como cargo (el saldo disminuye)."
+      : "El importe se registra como abono (el saldo aumenta).";
 
   return (
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      title="New cash movement"
-      description="Deposits, withdrawals, interest, fees, dividends and transfers."
+      title="Nuevo movimiento de efectivo"
+      description="Ingresos, retiradas, intereses, comisiones, dividendos y transferencias."
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -196,14 +204,14 @@ export function CreateCashMovementModal({
           </div>
         )}
 
-        <Field label="Account" errors={fieldErrors.accountId}>
+        <Field label="Cuenta" errors={fieldErrors.accountId}>
           <select
             value={form.accountId}
             onChange={(e) => onAccountChange(e.target.value)}
             className={inputClass}
             required
           >
-            {accounts.length === 0 && <option value="">No accounts</option>}
+            {accounts.length === 0 && <option value="">Sin cuentas</option>}
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -212,7 +220,7 @@ export function CreateCashMovementModal({
           </select>
         </Field>
 
-        <Field label="Kind" errors={fieldErrors.kind}>
+        <Field label="Tipo" errors={fieldErrors.kind}>
           <select
             value={form.kind}
             onChange={(e) =>
@@ -229,7 +237,7 @@ export function CreateCashMovementModal({
           <span className="text-xs text-muted-foreground">{signHint}</span>
         </Field>
 
-        <Field label="Date" errors={fieldErrors.occurredAt}>
+        <Field label="Fecha" errors={fieldErrors.occurredAt}>
           <input
             type="date"
             value={form.occurredAt}
@@ -240,7 +248,7 @@ export function CreateCashMovementModal({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Amount" errors={fieldErrors.amountNative}>
+          <Field label="Importe" errors={fieldErrors.amountNative}>
             <input
               type="number"
               inputMode="decimal"
@@ -252,7 +260,7 @@ export function CreateCashMovementModal({
               required
             />
           </Field>
-          <Field label="Currency" errors={fieldErrors.currency}>
+          <Field label="Divisa" errors={fieldErrors.currency}>
             <select
               value={form.currency}
               onChange={(e) => update("currency", e.target.value)}
@@ -262,7 +270,7 @@ export function CreateCashMovementModal({
               {currencyOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
-                  {c === selectedAccount?.currency ? " (account currency)" : ""}
+                  {c === selectedAccount?.currency ? " (divisa de la cuenta)" : ""}
                 </option>
               ))}
             </select>
@@ -271,34 +279,31 @@ export function CreateCashMovementModal({
 
         {form.currency !== "EUR" && (
           <Field
-            label={`FX rate — 1 ${form.currency} = ? EUR (optional)`}
-            errors={fieldErrors.fxRateToEur}
+            label={`Tipo de cambio — 1 EUR = ? ${form.currency} (el de tu broker, obligatorio)`}
+            errors={fieldErrors.fxEurToCcy}
           >
             <input
               type="number"
               inputMode="decimal"
               step="any"
               min="0"
-              value={form.fxRateToEur}
-              onChange={(e) => update("fxRateToEur", e.target.value)}
+              value={form.fxEurToCcy}
+              onChange={(e) => update("fxEurToCcy", e.target.value)}
               className={inputClass}
-              placeholder={
-                fxPreview
-                  ? `Leave blank to use ${fxPreview.rate.toFixed(6)}`
-                  : "Leave blank to use the stored rate"
-              }
+              placeholder={`p. ej. ${fxPreview ? (1 / fxPreview.rate).toFixed(4) : "1,15"} — tal como lo muestra DEGIRO`}
+              required
             />
             {fxPreview && (
               <span className="text-xs text-muted-foreground">
-                Stored rate: 1 {form.currency} = {fxPreview.rate.toFixed(6)} EUR
-                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""}
-                {fxPreview.stale ? " — stale" : ""}
+                Referencia diaria: 1 EUR = {(1 / fxPreview.rate).toFixed(4)} {form.currency}
+                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""} — solo salvaguarda,
+                nunca se aplica automáticamente.
               </span>
             )}
           </Field>
         )}
 
-        <Field label="Description" errors={fieldErrors.description}>
+        <Field label="Descripción" errors={fieldErrors.description}>
           <textarea
             value={form.description}
             onChange={(e) => update("description", e.target.value)}
@@ -314,7 +319,7 @@ export function CreateCashMovementModal({
             onClick={() => handleOpenChange(false)}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           {duplicateWarning ? (
             <Button
@@ -323,7 +328,7 @@ export function CreateCashMovementModal({
               disabled={pending}
               onClick={() => submit({ allowDuplicate: true })}
             >
-              Save anyway
+              Guardar igualmente
             </Button>
           ) : null}
           {fxDeviationWarning ? (
@@ -333,11 +338,11 @@ export function CreateCashMovementModal({
               disabled={pending}
               onClick={() => submit({ allowFxDeviation: true })}
             >
-              Use my rate anyway
+              Usar mi tipo igualmente
             </Button>
           ) : null}
           <Button type="submit" disabled={pending || !form.accountId}>
-            {pending ? "Saving…" : "Create movement"}
+            {pending ? "Guardando…" : "Registrar movimiento"}
           </Button>
         </div>
       </form>

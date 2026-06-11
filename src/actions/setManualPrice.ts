@@ -37,7 +37,7 @@ export async function setManualPrice(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -49,13 +49,16 @@ export async function setManualPrice(
   try {
     const asset = await db.select().from(assets).where(eq(assets.id, assetId)).get();
     if (!asset) {
-      return { ok: false, error: { code: "not_found", message: `asset not found: ${assetId}` } };
+      return { ok: false, error: { code: "not_found", message: "activo no encontrado" } };
     }
     const symbol = asset.providerSymbol ?? asset.symbol ?? asset.ticker;
     if (!symbol) {
       return {
         ok: false,
-        error: { code: "validation", message: "asset has no symbol to key price history on" },
+        error: {
+          code: "validation",
+          message: "El activo no tiene símbolo con el que registrar el histórico de precios",
+        },
       };
     }
 
@@ -142,15 +145,14 @@ export async function setManualPrice(
     return { ok: true, data: result };
   } catch (err) {
     if (err instanceof FxUnavailableError) {
+      const friendly = `No hay tipo de cambio almacenado para ${err.currency} a fecha ${err.isoDate} o anterior — sincroniza FX primero.`;
       return {
         ok: false,
         error: {
           code: "validation",
-          message: err.message,
+          message: friendly,
           fieldErrors: {
-            priceDate: [
-              `No stored FX rate for ${err.currency} on or before ${err.isoDate} — sync FX first.`,
-            ],
+            priceDate: [friendly],
           },
         },
       };

@@ -20,7 +20,7 @@ export async function updateAsset(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -72,7 +72,9 @@ export async function updateAsset(
     return { ok: true, data: updated };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";
-    const code = message.startsWith("asset not found") ? "not_found" : "db";
-    return { ok: false, error: { code, message } };
+    if (message.startsWith("asset not found")) {
+      return { ok: false, error: { code: "not_found", message: "activo no encontrado" } };
+    }
+    return { ok: false, error: { code: "db", message } };
   }
 }

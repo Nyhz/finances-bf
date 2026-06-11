@@ -30,7 +30,7 @@ export async function deleteAsset(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -80,10 +80,16 @@ export async function deleteAsset(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";
     if (message === "asset has transactions") {
-      return { ok: false, error: { code: "conflict", message } };
+      return {
+        ok: false,
+        error: {
+          code: "conflict",
+          message: "El activo tiene transacciones — elimínalas primero.",
+        },
+      };
     }
     if (message.startsWith("asset not found")) {
-      return { ok: false, error: { code: "not_found", message } };
+      return { ok: false, error: { code: "not_found", message: "activo no encontrado" } };
     }
     return { ok: false, error: { code: "db", message } };
   }

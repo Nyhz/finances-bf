@@ -58,8 +58,8 @@ export function SetManualPriceModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Set manual price"
-      description={`${asset.name} — native currency ${asset.currency}`}
+      title="Fijar precio manual"
+      description={`${asset.name} — divisa nativa ${asset.currency}`}
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -71,7 +71,7 @@ export function SetManualPriceModal({
           </div>
         )}
 
-        <Field label={`Price (${asset.currency})`} errors={fieldErrors.priceNative}>
+        <Field label={`Precio (${asset.currency})`} errors={fieldErrors.priceNative}>
           <SensitiveValue>
             <input
               type="number"
@@ -86,7 +86,7 @@ export function SetManualPriceModal({
           </SensitiveValue>
         </Field>
 
-        <Field label="Date" errors={fieldErrors.priceDate}>
+        <Field label="Fecha" errors={fieldErrors.priceDate}>
           <input
             type="date"
             value={priceDate}
@@ -103,10 +103,10 @@ export function SetManualPriceModal({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           <Button type="submit" disabled={pending}>
-            {pending ? "Saving…" : "Save price"}
+            {pending ? "Guardando…" : "Guardar precio"}
           </Button>
         </div>
       </form>

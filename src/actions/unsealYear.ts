@@ -12,13 +12,13 @@ export async function unsealYear(
   db: DB = defaultDb,
 ): Promise<ActionResult<{ year: number }>> {
   const parsed = unsealYearSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: { code: "validation", message: "invalid input" } };
+  if (!parsed.success) return { ok: false, error: { code: "validation", message: "Datos no válidos" } };
   const { year } = parsed.data;
 
   try {
     const result = db.transaction((tx) => {
       const existing = tx.select().from(taxYearSnapshots).where(eq(taxYearSnapshots.year, year)).get();
-      if (!existing) throw new Error(`year ${year} is not sealed`);
+      if (!existing) throw new Error(`el ejercicio ${year} no está sellado`);
       tx.delete(taxYearSnapshots).where(eq(taxYearSnapshots.year, year)).run();
       tx.insert(auditEvents).values({
         id: ulid(),

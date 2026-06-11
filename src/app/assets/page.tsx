@@ -12,9 +12,9 @@ export default async function AssetsPage() {
     <div className="flex flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Assets</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Activos</h1>
           <p className="text-sm text-muted-foreground">
-            Master list of tracked instruments.
+            Listado maestro de instrumentos seguidos.
           </p>
         </div>
         <AssetsNewButton />
@@ -23,8 +23,8 @@ export default async function AssetsPage() {
       {rows.length === 0 ? (
         <StatesBlock
           mode="empty"
-          title="No assets yet"
-          description="Assets are created automatically from trades or added manually."
+          title="Sin activos"
+          description="Los activos se crean automáticamente a partir de operaciones o se añaden a mano."
         />
       ) : (
         <AssetsTable rows={rows} />

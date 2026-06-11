@@ -1,0 +1,1 @@
+ALTER TABLE `tax_lots` DROP COLUMN `unit_cost_eur`;

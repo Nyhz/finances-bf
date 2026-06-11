@@ -24,6 +24,24 @@ export function buildDetailCsv(report: TaxReport): string {
     );
   }
 
+  // Filas listas para transcribir a Rentanet: una por pareja venta↔compra
+  // (FIFO), valores históricos sin actualizar.
+  lines.push("# DECLARACION (venta <-> compra FIFO)");
+  lines.push(csvRow([
+    "saleTransactionId", "assetName", "isin",
+    "fechaAdquisicion", "fechaTransmision", "cantidad",
+    "valorAdquisicionEur", "valorTransmisionEur", "gastosTransmisionEur",
+    "resultadoEur", "recompra",
+  ]));
+  for (const d of report.declaration ?? []) {
+    lines.push(csvRow([
+      d.saleTransactionId, d.assetName, d.isin,
+      iso(d.acquiredAt), iso(d.soldAt), d.qty,
+      eur(d.valorAdquisicionEur), eur(d.valorTransmisionEur), eur(d.gastosTransmisionEur),
+      eur(d.resultadoEur), d.recompra ? "SI" : "NO",
+    ]));
+  }
+
   lines.push("# SALES");
   lines.push(csvRow([
     "transactionId", "tradedAt", "assetName", "isin", "assetClassTax",

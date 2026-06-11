@@ -25,7 +25,7 @@ export async function deleteTransaction(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -118,7 +118,7 @@ export async function deleteTransaction(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";
     if (message.startsWith("transaction not found")) {
-      return { ok: false, error: { code: "not_found", message } };
+      return { ok: false, error: { code: "not_found", message: "transacción no encontrada" } };
     }
     return { ok: false, error: { code: "db", message } };
   }

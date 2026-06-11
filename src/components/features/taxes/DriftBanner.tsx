@@ -6,15 +6,15 @@ export function DriftBanner({ drift }: { drift: DriftReport }) {
   return (
     <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4">
       <p className="text-sm font-medium text-destructive">
-        Drift detected since this year was sealed
+        Desviación detectada respecto al sellado de este ejercicio
       </p>
       <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
         <li>
-          Net computable:{" "}
+          Neto computable:{" "}
           <SensitiveValue>{formatEur(drift.netComputableEurDelta)}</SensitiveValue>
         </li>
         <li>
-          Dividends gross:{" "}
+          Dividendos brutos:{" "}
           <SensitiveValue>{formatEur(drift.dividendsGrossEurDelta)}</SensitiveValue>
         </li>
         <li>
@@ -25,15 +25,15 @@ export function DriftBanner({ drift }: { drift: DriftReport }) {
         </li>
         {drift.contentChanged ? (
           <li className="font-medium">
-            Composition changed — the set of sales/dividends differs from the sealed
-            snapshot even if totals match.
+            La composición ha cambiado — el conjunto de ventas/dividendos difiere de
+            la instantánea sellada aunque los totales coincidan.
           </li>
         ) : null}
-        <li>Sales count Δ: {drift.salesCountDelta}</li>
-        <li>Dividends count Δ: {drift.dividendsCountDelta}</li>
+        <li>Δ n.º de ventas: {drift.salesCountDelta}</li>
+        <li>Δ n.º de dividendos: {drift.dividendsCountDelta}</li>
       </ul>
       <p className="mt-2 text-xs text-muted-foreground">
-        Either accept the edit (unseal and reseal) or revert the change in /transactions.
+        Acepta la edición (desellar y volver a sellar) o revierte el cambio en /transactions.
       </p>
     </div>
   );

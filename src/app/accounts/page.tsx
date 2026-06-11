@@ -12,9 +12,9 @@ export default async function AccountsPage() {
     <div className="flex flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Cuentas</h1>
           <p className="text-sm text-muted-foreground">
-            Cash balances by account, EUR-normalised.
+            Saldos de efectivo por cuenta, normalizados a EUR.
           </p>
         </div>
         <AccountsNewButton />
@@ -23,8 +23,8 @@ export default async function AccountsPage() {
       {rows.length === 0 ? (
         <StatesBlock
           mode="empty"
-          title="No accounts yet"
-          description="Add an account to track cash balances and trades."
+          title="Sin cuentas"
+          description="Añade una cuenta para registrar saldos de efectivo y operaciones."
         />
       ) : (
         <AccountsTable rows={rows} />

@@ -6,6 +6,17 @@ import { Button } from "@/src/components/ui/Button";
 import { createAsset } from "@/src/actions/createAsset";
 import { ASSET_TYPES } from "@/src/actions/_constants";
 
+// Display-only labels — the submitted assetType values stay in English.
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  etf: "ETF",
+  stock: "Acción",
+  bond: "Bono",
+  crypto: "Cripto",
+  fund: "Fondo",
+  "cash-equivalent": "Equivalente de efectivo",
+  other: "Otro",
+};
+
 type FormState = {
   name: string;
   symbol: string;
@@ -88,8 +99,8 @@ export function CreateAssetModal({
         if (!next && !pending) reset();
         onOpenChange(next);
       }}
-      title="New asset"
-      description="Register an instrument to track positions and valuations."
+      title="Nuevo activo"
+      description="Registra un instrumento para seguir posiciones y valoraciones."
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -101,7 +112,7 @@ export function CreateAssetModal({
           </div>
         )}
 
-        <Field label="Name" errors={fieldErrors.name}>
+        <Field label="Nombre" errors={fieldErrors.name}>
           <input
             type="text"
             value={form.name}
@@ -112,7 +123,7 @@ export function CreateAssetModal({
           />
         </Field>
 
-        <Field label="Symbol" errors={fieldErrors.symbol}>
+        <Field label="Símbolo" errors={fieldErrors.symbol}>
           <input
             type="text"
             value={form.symbol}
@@ -130,11 +141,11 @@ export function CreateAssetModal({
             onChange={(e) => update("isin", e.target.value.toUpperCase())}
             className={inputClass}
             maxLength={12}
-            placeholder="optional"
+            placeholder="opcional"
           />
         </Field>
 
-        <Field label="Type" errors={fieldErrors.assetType}>
+        <Field label="Tipo" errors={fieldErrors.assetType}>
           <select
             value={form.assetType}
             onChange={(e) => update("assetType", e.target.value)}
@@ -142,42 +153,45 @@ export function CreateAssetModal({
           >
             {ASSET_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {ASSET_TYPE_LABELS[t] ?? t}
               </option>
             ))}
           </select>
         </Field>
 
-        <Field label="Native currency (ISO 4217)" errors={fieldErrors.currency}>
-          <input
-            type="text"
+        <Field label="Divisa nativa" errors={fieldErrors.currency}>
+          {/* Selector cerrado: la divisa del activo gobierna el FX de todas
+              sus operaciones — un typo aquí sería catastrófico. */}
+          <select
             value={form.currency}
-            onChange={(e) => update("currency", e.target.value.toUpperCase())}
+            onChange={(e) => update("currency", e.target.value)}
             className={inputClass}
-            maxLength={3}
             required
-          />
+          >
+            <option value="EUR">EUR</option>
+            <option value="USD">USD</option>
+          </select>
         </Field>
 
-        <Field label="Exchange" errors={fieldErrors.exchange}>
+        <Field label="Mercado" errors={fieldErrors.exchange}>
           <input
             type="text"
             value={form.exchange}
             onChange={(e) => update("exchange", e.target.value)}
             className={inputClass}
             maxLength={32}
-            placeholder="optional"
+            placeholder="opcional"
           />
         </Field>
 
-        <Field label="Yahoo / provider symbol" errors={fieldErrors.providerSymbol}>
+        <Field label="Símbolo de Yahoo / proveedor" errors={fieldErrors.providerSymbol}>
           <input
             type="text"
             value={form.providerSymbol}
             onChange={(e) => update("providerSymbol", e.target.value)}
             className={inputClass}
             maxLength={64}
-            placeholder="optional — overrides symbol for price sync"
+            placeholder="opcional — sustituye al símbolo en la sincronización de precios"
           />
         </Field>
 
@@ -187,7 +201,7 @@ export function CreateAssetModal({
             checked={form.isActive}
             onChange={(e) => update("isActive", e.target.checked)}
           />
-          <span>Active</span>
+          <span>Activo</span>
         </label>
 
         <div className="flex items-center justify-end gap-2 pt-2">
@@ -200,10 +214,10 @@ export function CreateAssetModal({
             }}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           <Button type="submit" disabled={pending}>
-            {pending ? "Creating…" : "Create asset"}
+            {pending ? "Creando…" : "Crear activo"}
           </Button>
         </div>
       </form>

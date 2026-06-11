@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 import { Suspense } from "react";
 import Link from "next/link";
 import { Card } from "@/src/components/ui/Card";
-import { KPICard } from "@/src/components/ui/KPICard";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
@@ -50,56 +49,87 @@ function RangeTabs({ range }: { range: OverviewRange }) {
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
         >
-          {r}
+          {r === "ALL" ? "Todo" : r}
         </Link>
       ))}
     </div>
   );
 }
 
+// Display-only labels — raw accountType values stay English in the DB.
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  broker: "Bróker",
+  investment: "Inversión",
+  crypto: "Cripto",
+  savings: "Efectivo",
+  bank: "Banco",
+};
+
 function KpiRow({ report }: { report: StatementReport }) {
   const { totals } = report;
+  const pnlTone =
+    totals.unrealizedPnlEur > 0
+      ? "text-success"
+      : totals.unrealizedPnlEur < 0
+        ? "text-destructive"
+        : "";
   return (
-    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <KPICard label="Net Worth (EUR)" value={formatEur(totals.netWorthEur)} />
-      <KPICard label="Invested (EUR)" value={formatEur(totals.investedMarketValueEur)} />
-      <KPICard label="Cash (EUR)" value={formatEur(totals.cashEur)} />
-      <KPICard
-        label="Unrealized P&L (EUR)"
-        value={
+    <Card className="p-0">
+      <div className="grid divide-y divide-border/60 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <div className="flex flex-col gap-1.5 p-5">
+          <span
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title="Valor total a precios de mercado: efectivo más posiciones valoradas."
+          >
+            Patrimonio total
+          </span>
+          <SensitiveValue className="text-3xl font-semibold tracking-tight tabular-nums">
+            {formatEur(totals.netWorthEur)}
+          </SensitiveValue>
+          <span className="text-xs text-muted-foreground">
+            Efectivo <SensitiveValue>{formatEur(totals.cashEur)}</SensitiveValue> · invertido{" "}
+            <SensitiveValue>{formatEur(totals.investedMarketValueEur)}</SensitiveValue>
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5 p-5">
+          <span
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title="Diferencia entre el valor de mercado actual y lo que pagaste (comisiones incluidas). No tributa hasta que vendas."
+          >
+            Plusvalía latente
+          </span>
           <span className="flex items-baseline gap-2">
-            <span>{formatEur(totals.unrealizedPnlEur)}</span>
+            <SensitiveValue
+              className={`text-3xl font-semibold tracking-tight tabular-nums ${pnlTone}`}
+            >
+              {formatEur(totals.unrealizedPnlEur)}
+            </SensitiveValue>
             {totals.unrealizedPnlPct != null && (
-              <span
-                className={`text-sm font-medium tabular-nums ${
-                  totals.unrealizedPnlEur > 0
-                    ? "text-success"
-                    : totals.unrealizedPnlEur < 0
-                      ? "text-destructive"
-                      : "text-muted-foreground"
-                }`}
-              >
+              <span className={`text-sm font-medium tabular-nums ${pnlTone}`}>
                 {`${totals.unrealizedPnlPct >= 0 ? "+" : ""}${formatPercent(
                   totals.unrealizedPnlPct,
                 )}`}
               </span>
             )}
           </span>
-        }
-      />
-    </section>
+          <span className="text-xs text-muted-foreground">
+            Sobre el coste de compra — no tributa hasta vender.
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
 async function ValueChartCard({ range }: { range: OverviewRange }) {
   const series = await getNetWorthSeries({ range, accountIds: [] });
   return (
-    <Card title="Portfolio value" action={<RangeTabs range={range} />}>
+    <Card title="Evolución del valor" action={<RangeTabs range={range} />}>
       {series.length === 0 ? (
         <StatesBlock
           mode="empty"
-          title="No valuation history"
-          description="Daily valuations will appear once prices have been synced."
+          title="Sin historial de valoraciones"
+          description="Las valoraciones diarias aparecerán cuando se sincronicen precios y haya transacciones."
         />
       ) : (
         <StatementValueChart data={series} />
@@ -116,19 +146,19 @@ function AccountsTable({ accounts }: { accounts: StatementAccountLine[] }) {
       columns={[
         {
           key: "name",
-          header: "Account",
+          header: "Cuenta",
           cell: (a) => (
             <div className="flex flex-col">
               <span className="font-medium">{a.name}</span>
-              <span className="text-xs capitalize text-muted-foreground">
-                {a.accountType} · {a.currency}
+              <span className="text-xs text-muted-foreground">
+                {ACCOUNT_TYPE_LABELS[a.accountType] ?? a.accountType} · {a.currency}
               </span>
             </div>
           ),
         },
         {
           key: "cash",
-          header: "Cash",
+          header: "Efectivo",
           align: "right",
           cell: (a) => (
             <SensitiveValue className="text-sm">{formatEur(a.cashEur)}</SensitiveValue>
@@ -136,7 +166,7 @@ function AccountsTable({ accounts }: { accounts: StatementAccountLine[] }) {
         },
         {
           key: "invested",
-          header: "Invested",
+          header: "Invertido",
           align: "right",
           cell: (a) => (
             <SensitiveValue className="text-sm">{formatEur(a.investedEur)}</SensitiveValue>
@@ -186,10 +216,10 @@ export default async function StatementPage({
     <div className="flex flex-col gap-6 p-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Statement</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Extracto</h1>
           <p className="text-sm text-muted-foreground">
-            Full portfolio statement as of {formatDateTime(report.generatedAt)} — every
-            account, every asset, valued in EUR.
+            Extracto completo de la cartera a {formatDateTime(report.generatedAt)} — todas
+            las cuentas y activos, valorados en EUR.
           </p>
         </div>
         <StatementExportMenu />
@@ -199,19 +229,19 @@ export default async function StatementPage({
 
       <Suspense
         key={`value:${range}`}
-        fallback={<ChartCardSkeleton title="Portfolio value" />}
+        fallback={<ChartCardSkeleton title="Evolución del valor" />}
       >
         <ValueChartCard range={range} />
       </Suspense>
 
       {hasPositions ? (
         <section className="grid gap-6 lg:grid-cols-3">
-          <Card title="Allocation by type">
+          <Card title="Reparto por tipo de activo">
             {slices.length === 0 ? (
               <StatesBlock
                 mode="empty"
-                title="No valued positions"
-                description="Allocation appears once positions have a synced price."
+                title="Sin posiciones valoradas"
+                description="El reparto aparecerá cuando las posiciones tengan precio sincronizado."
               />
             ) : (
               <AllocationDonut
@@ -220,23 +250,23 @@ export default async function StatementPage({
               />
             )}
           </Card>
-          <Card title="Value by account">
+          <Card title="Valor por cuenta">
             {accountBars.length === 0 ? (
               <StatesBlock
                 mode="empty"
-                title="No account balances"
-                description="Account balances appear once accounts have activity."
+                title="Sin saldos"
+                description="Los saldos aparecerán cuando las cuentas tengan actividad."
               />
             ) : (
               <AccountsBarChart rows={accountBars} />
             )}
           </Card>
-          <Card title="Unrealized P&L by type">
+          <Card title="Plusvalía latente por tipo">
             {pnlRows.length === 0 ? (
               <StatesBlock
                 mode="empty"
-                title="No P&L yet"
-                description="P&L appears once positions have a synced price."
+                title="Sin plusvalía aún"
+                description="Aparecerá cuando las posiciones tengan precio sincronizado."
               />
             ) : (
               <TypePnlChart rows={pnlRows} />
@@ -246,17 +276,17 @@ export default async function StatementPage({
       ) : (
         <StatesBlock
           mode="empty"
-          title="No open positions"
-          description="Import transactions or add trades to build your statement."
+          title="Sin posiciones abiertas"
+          description="Registra transacciones para construir tu extracto."
         />
       )}
 
-      <Card title="Accounts">
+      <Card title="Cuentas">
         {report.accounts.length === 0 ? (
           <StatesBlock
             mode="empty"
-            title="No accounts"
-            description="Create an account to start tracking your portfolio."
+            title="Sin cuentas"
+            description="Crea una cuenta para empezar a registrar tu cartera."
           />
         ) : (
           <AccountsTable accounts={report.accounts} />

@@ -10,7 +10,10 @@ import { getInterestForYear } from "@/src/server/tax/interest";
 import { db } from "@/src/db/client";
 import { TaxesHeader } from "@/src/components/features/taxes/TaxesHeader";
 import { DriftBanner } from "@/src/components/features/taxes/DriftBanner";
-import { TaxKpiRow } from "@/src/components/features/taxes/TaxKpiRow";
+import { TaxSummary } from "@/src/components/features/taxes/TaxSummary";
+import { DeclarationTable } from "@/src/components/features/taxes/DeclarationTable";
+import { PrevisionCard } from "@/src/components/features/taxes/PrevisionCard";
+import { buildPrevision } from "@/src/server/tax/prevision";
 import { GainsTable } from "@/src/components/features/taxes/GainsTable";
 import { DividendsTable } from "@/src/components/features/taxes/DividendsTable";
 import { YearEndCard } from "@/src/components/features/taxes/YearEndCard";
@@ -33,6 +36,7 @@ export default async function TaxYearPage({ params }: { params: Params }) {
   const drift = computeDriftSinceSeal(db, year);
   const years = await getTaxYears();
   const interestEur = await getInterestForYear(year);
+  const prevision = buildPrevision(report, interestEur);
   const hasUnvalued = [...models.m720.blocks, ...models.m721.blocks].some(
     (b) => b.hasUnvalued,
   );
@@ -55,7 +59,12 @@ export default async function TaxYearPage({ params }: { params: Params }) {
         </div>
       ) : null}
       {drift ? <DriftBanner drift={drift} /> : null}
-      <TaxKpiRow report={report} interestEur={interestEur} />
+      <TaxSummary report={report} prevision={prevision} interestEur={interestEur} />
+      <DeclarationTable rows={report.declaration ?? []} />
+      <PrevisionCard
+        prevision={prevision}
+        netComputableEur={report.totals.netComputableEur}
+      />
       <GainsTable sales={report.sales} excludedSales={report.excludedSales} />
       <DividendsTable dividends={report.dividends} />
       <YearEndCard models={models} />

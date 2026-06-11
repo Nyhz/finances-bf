@@ -27,7 +27,7 @@ export function UnsealYearButton({ year }: Props) {
   return (
     <>
       <Button variant="danger" onClick={() => setOpen(true)}>
-        Unseal year
+        Desellar ejercicio
       </Button>
       <ConfirmModal
         open={open}
@@ -35,18 +35,18 @@ export function UnsealYearButton({ year }: Props) {
           setOpen(next);
           if (!next) setError(null);
         }}
-        title={`Unseal ${year}?`}
+        title={`¿Desellar ${year}?`}
         description={
           <div className="space-y-2">
             <p>
-              Unsealing deletes the snapshot. The year&apos;s numbers will go back to being
-              recomputed live — any edits made since sealing will silently take effect.
-              Only unseal if you need to correct the sealed record.
+              Desellar elimina la instantánea. Las cifras del ejercicio volverán a
+              recomputarse en vivo — cualquier edición hecha desde el sellado surtirá
+              efecto en silencio. Desella solo si necesitas corregir el registro sellado.
             </p>
             {error ? <p className="text-sm font-medium text-destructive">{error}</p> : null}
           </div>
         }
-        confirmLabel="Unseal"
+        confirmLabel="Desellar"
         confirmVariant="danger"
         onConfirm={handleConfirm}
       />

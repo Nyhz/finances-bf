@@ -8,7 +8,6 @@ import type { DB } from "../../db/client";
 import { listTransactions } from "../transactions";
 import { getOverviewKpis } from "../overview";
 import { listAccounts, getAccountsSummary } from "../accounts";
-import { listImportBatches } from "../imports";
 
 function makeDb(): DB {
   const sqlite = new Database(":memory:");
@@ -39,10 +38,6 @@ describe("server read layer — fresh DB", () => {
     expect(kpis.cashEur).toBe(0);
     expect(kpis.investedEur).toBe(0);
     expect(kpis.unrealizedPnlEur).toBe(0);
-  });
-
-  it("listImportBatches returns []", async () => {
-    expect(await listImportBatches(db)).toEqual([]);
   });
 
   it("listTransactions returns empty page", async () => {

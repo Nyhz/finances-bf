@@ -97,8 +97,8 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      title="Record crypto swap"
-      description="Two linked transactions: sell the outgoing asset, buy the incoming asset."
+      title="Registrar swap de cripto"
+      description="Dos transacciones enlazadas: venta del activo saliente, compra del activo entrante."
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -110,14 +110,14 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
           </div>
         )}
 
-        <Field label="Account" errors={fieldErrors.accountId}>
+        <Field label="Cuenta" errors={fieldErrors.accountId}>
           <select
             value={form.accountId}
             onChange={(e) => update("accountId", e.target.value)}
             className={inputClass}
             required
           >
-            {accounts.length === 0 && <option value="">No accounts</option>}
+            {accounts.length === 0 && <option value="">Sin cuentas</option>}
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -126,7 +126,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
           </select>
         </Field>
 
-        <Field label="Date" errors={fieldErrors.tradeDate}>
+        <Field label="Fecha" errors={fieldErrors.tradeDate}>
           <input
             type="date"
             value={form.tradeDate}
@@ -137,7 +137,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Outgoing asset" errors={fieldErrors.outgoingAssetId}>
+          <Field label="Activo saliente" errors={fieldErrors.outgoingAssetId}>
             <select
               value={form.outgoingAssetId}
               onChange={(e) => update("outgoingAssetId", e.target.value)}
@@ -152,7 +152,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
             </select>
           </Field>
 
-          <Field label="Outgoing quantity" errors={fieldErrors.outgoingQuantity}>
+          <Field label="Cantidad saliente" errors={fieldErrors.outgoingQuantity}>
             <input
               type="number"
               inputMode="decimal"
@@ -165,7 +165,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
             />
           </Field>
 
-          <Field label="Incoming asset" errors={fieldErrors.incomingAssetId}>
+          <Field label="Activo entrante" errors={fieldErrors.incomingAssetId}>
             <select
               value={form.incomingAssetId}
               onChange={(e) => update("incomingAssetId", e.target.value)}
@@ -180,7 +180,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
             </select>
           </Field>
 
-          <Field label="Incoming quantity" errors={fieldErrors.incomingQuantity}>
+          <Field label="Cantidad entrante" errors={fieldErrors.incomingQuantity}>
             <input
               type="number"
               inputMode="decimal"
@@ -194,7 +194,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
           </Field>
         </div>
 
-        <Field label="EUR value at swap" errors={fieldErrors.valueEur}>
+        <Field label="Valor en EUR en el momento del swap" errors={fieldErrors.valueEur}>
           <input
             type="number"
             inputMode="decimal"
@@ -207,7 +207,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
           />
         </Field>
 
-        <Field label="Notes (optional)" errors={fieldErrors.notes}>
+        <Field label="Notas (opcional)" errors={fieldErrors.notes}>
           <textarea
             value={form.notes}
             onChange={(e) => update("notes", e.target.value)}
@@ -223,7 +223,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
             onClick={() => handleOpenChange(false)}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           <Button
             type="submit"
@@ -237,7 +237,7 @@ export function CreateSwapModal({ open, onOpenChange, accounts, assets }: Props)
               !form.valueEur
             }
           >
-            {pending ? "Saving…" : "Record swap"}
+            {pending ? "Guardando…" : "Registrar swap"}
           </Button>
         </div>
       </form>

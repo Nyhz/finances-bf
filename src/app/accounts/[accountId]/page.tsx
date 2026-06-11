@@ -78,12 +78,12 @@ export default async function AccountDetailPage({
 
       <AccountPositionsTable rows={positions} />
 
-      <Card title="Performance">
+      <Card title="Evolución">
         {perfData.length === 0 ? (
           <StatesBlock
             mode="empty"
-            title="No performance data"
-            description="Daily balances will appear here once the nightly snapshot runs."
+            title="Sin datos de evolución"
+            description="Los saldos diarios aparecerán aquí cuando se ejecute el snapshot nocturno."
           />
         ) : (
           <AccountPerformanceChart data={perfData} />

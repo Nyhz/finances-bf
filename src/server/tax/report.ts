@@ -10,6 +10,7 @@ import {
   taxWashSaleAdjustments,
 } from "../../db/schema";
 import { buildYearEndBalances, type YearEndBalance } from "./yearEnd";
+import { allocateLargestRemainder } from "./washSale";
 
 // Re-exported so existing consumers keep importing from "./report".
 export { YEAR_END_VALUATION_STALE_DAYS } from "./yearEnd";
@@ -43,6 +44,38 @@ export type SaleReportRow = {
   assetClassTax: string | null;
 };
 
+/**
+ * One row per (sale, consumed FIFO lot): EXACTLY the numbers to type into the
+ * foral renta program (Rentanet) for one transmission — untransformed user
+ * data. Coefficients, exemptions and compensation belong to the Previsión
+ * layer, never here. Transmission gross and sale fees are partitioned across
+ * the sale's lots by quantity (largest-remainder), so per-sale sums reconcile
+ * with the sale row to the cent.
+ */
+export type DeclarationRow = {
+  saleTransactionId: string;
+  assetId: string;
+  assetName: string | null;
+  isin: string | null;
+  lotId: string;
+  /** Fecha de adquisición (lote FIFO). */
+  acquiredAt: number;
+  /** Fecha de transmisión. */
+  soldAt: number;
+  qty: number;
+  /** Valor de adquisición: coste del lote consumido, comisiones de compra
+   *  incluidas (y pérdida diferida por recompra integrada, si la hay). */
+  valorAdquisicionEur: TxEur;
+  /** Valor de transmisión bruto prorrateado por cantidad. */
+  valorTransmisionEur: TxEur;
+  /** Gastos de la venta prorrateados por cantidad. */
+  gastosTransmisionEur: TxEur;
+  /** transmisión − gastos − adquisición. Σ por venta == rawGainLossEur. */
+  resultadoEur: TxEur;
+  /** La venta activó la norma antiaplicación (recompra) — marcar en renta. */
+  recompra: boolean;
+};
+
 export type DividendReportRow = {
   transactionId: string;
   tradedAt: number;
@@ -62,6 +95,9 @@ export type DividendReportRow = {
 export type TaxReport = {
   year: number;
   sales: SaleReportRow[];
+  /** Filas venta↔compra (FIFO) listas para transcribir a Rentanet.
+   *  Optional: snapshots sealed before this field existed lack it. */
+  declaration?: DeclarationRow[];
   dividends: DividendReportRow[];
   yearEndBalances: YearEndBalance[];
   /** Disposals dropped by the dust filter (audit T7) — disclosed, never silent.
@@ -217,6 +253,37 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
     })
     .sort((a, b) => a.tradedAt - b.tradedAt);
 
+  // Declaración: one row per (sale, consumed lot). Gross proceeds and sale
+  // fees are partitioned across lots by quantity with largest-remainder so
+  // every per-sale sum reconciles exactly with the sale row.
+  const declaration: DeclarationRow[] = [];
+  for (const s of visibleSales) {
+    if (s.consumedLots.length === 0) continue;
+    // FIFO presentation order — also pins the partition assignment, which a
+    // bare unordered SELECT over consumptions would leave to the query plan.
+    const lots = [...s.consumedLots].sort((a, b) => a.acquiredAt - b.acquiredAt);
+    const weights = lots.map((c) => c.qtyConsumed);
+    const proceedsParts = allocateLargestRemainder(s.proceedsEur, weights);
+    const feesParts = allocateLargestRemainder(s.feesEur, weights);
+    lots.forEach((c, i) => {
+      declaration.push({
+        saleTransactionId: s.transactionId,
+        assetId: s.assetId,
+        assetName: s.assetName,
+        isin: s.isin,
+        lotId: c.lotId,
+        acquiredAt: c.acquiredAt,
+        soldAt: s.tradedAt,
+        qty: c.qtyConsumed,
+        valorAdquisicionEur: txEur(c.costBasisEur),
+        valorTransmisionEur: txEur(proceedsParts[i]),
+        gastosTransmisionEur: txEur(feesParts[i]),
+        resultadoEur: txEur(roundEur(proceedsParts[i] - feesParts[i] - c.costBasisEur)),
+        recompra: s.nonComputableLossEur !== 0,
+      });
+    });
+  }
+
   const dividendRows = db
     .select()
     .from(assetTransactions)
@@ -277,6 +344,7 @@ export function buildTaxReport(db: DB, year: number): TaxReport {
   return {
     year,
     sales: visibleSales,
+    declaration,
     dividends,
     yearEndBalances,
     excludedSales: {

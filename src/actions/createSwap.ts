@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
 import { rebuildAfterTradeMutation } from "../server/mutations";
+import { roundEur } from "../lib/money";
 import { createSwapSchema } from "./createSwap.schema";
 import {
   ACTOR,
@@ -25,7 +26,7 @@ export async function createSwap(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -44,7 +45,10 @@ export async function createSwap(
       const tradedAt = new Date(`${data.tradeDate}T12:00:00.000Z`).getTime();
       const sellId = ulid();
       const buyId = ulid();
-      const valueEur = data.valueEur;
+      // Round at the boundary: this is the only path that writes an
+      // unrounded EUR into tradeGrossAmountEur (→ tax-report proceeds); an
+      // .xx5 value makes screen (Intl) and CSV (toFixed) disagree by a cent.
+      const valueEur = roundEur(data.valueEur);
 
       // Audit H1: swap legs are deliberately EUR-denominated — the user enters
       // the swap's EUR valuation, so the monetary columns hold EUR and must say
@@ -129,7 +133,7 @@ export async function createSwap(
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     if (message.startsWith("tax-lots:")) {
-      const friendly = `The outgoing side exceeds the units held on that date (FIFO check): ${message}`;
+      const friendly = `La parte saliente supera las unidades poseídas en esa fecha (comprobación FIFO): ${message}`;
       return {
         ok: false,
         error: {
@@ -138,6 +142,12 @@ export async function createSwap(
           fieldErrors: { outgoingQuantity: [friendly] },
         },
       };
+    }
+    if (message.startsWith("account not found")) {
+      return { ok: false, error: { code: "not_found", message: "cuenta no encontrada" } };
+    }
+    if (message.endsWith("asset not found")) {
+      return { ok: false, error: { code: "not_found", message: "activo no encontrado" } };
     }
     return { ok: false, error: { code: "db", message } };
   }

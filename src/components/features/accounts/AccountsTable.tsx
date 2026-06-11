@@ -12,6 +12,14 @@ import { formatEur, formatMoney } from "@/src/lib/format";
 import type { AccountWithTotals } from "@/src/server/accounts";
 import { isCashBearingAccount } from "@/src/actions/_constants";
 
+// Display-only labels — the stored accountType values stay in English.
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  broker: "Bróker",
+  crypto: "Cripto",
+  investment: "Inversión",
+  savings: "Efectivo",
+};
+
 export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
   const [target, setTarget] = React.useState<AccountWithTotals | null>(null);
   const [banner, setBanner] = React.useState<string | null>(null);
@@ -41,12 +49,16 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
         rows={rows}
         getRowKey={(r) => r.id}
         columns={[
-          { key: "name", header: "Name", cell: (r) => r.name },
-          { key: "type", header: "Institution", cell: (r) => r.accountType },
-          { key: "currency", header: "Currency", cell: (r) => r.currency },
+          { key: "name", header: "Nombre", cell: (r) => r.name },
+          {
+            key: "type",
+            header: "Tipo",
+            cell: (r) => ACCOUNT_TYPE_LABELS[r.accountType] ?? r.accountType,
+          },
+          { key: "currency", header: "Divisa", cell: (r) => r.currency },
           {
             key: "eur",
-            header: "Balance (EUR)",
+            header: "Saldo (EUR)",
             align: "right",
             cell: (r) =>
               isCashBearingAccount(r.accountType) ? (
@@ -57,7 +69,7 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
           },
           {
             key: "native",
-            header: "Balance (native)",
+            header: "Saldo (divisa nativa)",
             align: "right",
             cell: (r) =>
               isCashBearingAccount(r.accountType) ? (
@@ -78,7 +90,7 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={`Actions for ${r.name}`}
+                    aria-label={`Acciones para ${r.name}`}
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
@@ -96,7 +108,7 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
                       }}
                       className="flex cursor-pointer items-center rounded-sm px-2 py-1.5 text-destructive outline-none data-[highlighted]:bg-accent"
                     >
-                      Delete
+                      Eliminar
                     </DropdownMenu.Item>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -111,9 +123,9 @@ export function AccountsTable({ rows }: { rows: AccountWithTotals[] }) {
         onOpenChange={(next) => {
           if (!next) setTarget(null);
         }}
-        title={`Delete ${target?.name ?? "account"}?`}
-        description="Accounts can only be deleted when they have no transactions or cash movements."
-        confirmLabel="Delete"
+        title={`¿Eliminar ${target?.name ?? "la cuenta"}?`}
+        description="Las cuentas solo se pueden eliminar cuando no tienen transacciones ni movimientos de efectivo."
+        confirmLabel="Eliminar"
         onConfirm={confirmDelete}
       />
     </>

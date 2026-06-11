@@ -43,7 +43,12 @@ export function recomputeAssetPosition(
   for (const row of rows) {
     if (row.transactionType === "buy") {
       qty += row.quantity;
-      totalCostNative += row.tradeGrossAmount + row.feesAmount;
+      // feesAmount may be denominated in EUR (degiro import, manual entry) —
+      // derive the native-unit fee from the EUR snapshot instead of trusting
+      // it, so the native cost pool never mixes currencies.
+      totalCostNative +=
+        row.tradeGrossAmount +
+        (row.fxRateToEur > 0 ? row.feesAmountEur / row.fxRateToEur : row.feesAmount);
       totalCostEur += row.tradeGrossAmountEur + row.feesAmountEur;
     } else if (row.transactionType === "sell") {
       if (qty <= 0) {

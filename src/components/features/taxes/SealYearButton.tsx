@@ -27,7 +27,7 @@ export function SealYearButton({ year, hasUnvalued = false }: Props) {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Seal year</Button>
+      <Button onClick={() => setOpen(true)}>Sellar ejercicio</Button>
       <ConfirmModal
         open={open}
         onOpenChange={(next) => {
@@ -37,13 +37,13 @@ export function SealYearButton({ year, hasUnvalued = false }: Props) {
             setAcknowledge(false);
           }
         }}
-        title={`Seal ${year}?`}
+        title={`¿Sellar ${year}?`}
         description={
           <div className="space-y-2">
             <p>
-              Sealing writes a snapshot of this year&apos;s tax report. Later edits to
-              transactions in {year} will produce a drift indicator instead of changing
-              the filed numbers silently.
+              Sellar guarda una instantánea del informe fiscal de este ejercicio. Las
+              ediciones posteriores de transacciones de {year} producirán un indicador
+              de desviación en lugar de cambiar en silencio las cifras presentadas.
             </p>
             {hasUnvalued ? (
               <label className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
@@ -54,16 +54,17 @@ export function SealYearButton({ year, hasUnvalued = false }: Props) {
                   className="mt-0.5"
                 />
                 <span>
-                  Some foreign year-end balances are <strong>unvalued</strong> — the
-                  M720/M721 declaration thresholds may be wrong. Seal anyway with these
-                  incomplete values.
+                  Algunos saldos extranjeros a cierre de ejercicio están{" "}
+                  <strong>sin valorar</strong> — los umbrales de declaración de
+                  M720/M721 podrían ser incorrectos. Sellar de todos modos con estos
+                  valores incompletos.
                 </span>
               </label>
             ) : null}
             {error ? <p className="text-sm font-medium text-destructive">{error}</p> : null}
           </div>
         }
-        confirmLabel="Seal"
+        confirmLabel="Sellar"
         confirmVariant="primary"
         onConfirm={handleConfirm}
       />

@@ -65,27 +65,30 @@ describe("applySavingsScale", () => {
   });
 });
 
-describe("estimateSavingsCuota", () => {
-  it("adds gains and RCM when both are positive", () => {
+describe("estimateSavingsCuota (art. 66 foral — compartimentos estancos)", () => {
+  it("adds gains and RCM after the 1.500 € dividend exemption", () => {
     const est = estimateSavingsCuota(
       input({ netComputableEur: 10_000, dividendsGrossEur: 2_000 }),
       500,
     );
-    expect(est.saldoRcmEur).toBe(2_500);
-    expect(est.baseAhorroEur).toBe(12_500);
-    expect(est.lossOffsetAppliedEur).toBe(0);
+    expect(est.dividendExemptionAppliedEur).toBe(1_500);
+    // RCM = 2000 − 1500 exención + 500 intereses = 1000.
+    expect(est.saldoRcmEur).toBe(1_000);
+    expect(est.baseAhorroEur).toBe(11_000);
     expect(est.lossCarryForwardEur).toBe(0);
-    // 2025 scale: 500 + 1575 + 2500×22% = 2625
-    expect(est.cuotaIntegraEur).toBe(2_625);
+    // 2025 scale: 500 + 1575 + 1000×22% = 2295
+    expect(est.cuotaIntegraEur).toBe(2_295);
   });
 
-  it("caps loss offset against RCM at 25% and carries the rest forward", () => {
+  it("never offsets a G/P loss against RCM — the full loss carries forward", () => {
     const est = estimateSavingsCuota(
       input({ netComputableEur: -5_000, dividendsGrossEur: 4_000 }),
     );
-    expect(est.lossOffsetAppliedEur).toBe(1_000); // 25% of 4000
-    expect(est.lossCarryForwardEur).toBe(4_000);
-    expect(est.baseAhorroEur).toBe(3_000);
+    // Bizkaia art. 66: exclusivamente entre sí — no 25% cross-compensation.
+    expect(est.lossCarryForwardEur).toBe(5_000);
+    // RCM = 4000 − 1500 exención = 2500; base = solo el compartimento RCM.
+    expect(est.saldoRcmEur).toBe(2_500);
+    expect(est.baseAhorroEur).toBe(2_500);
   });
 
   it("carries the full loss forward when there is no RCM", () => {
@@ -100,16 +103,18 @@ describe("estimateSavingsCuota", () => {
     const est = estimateSavingsCuota(
       input({
         netComputableEur: 0,
-        dividendsGrossEur: 1_000,
+        dividendsGrossEur: 5_000,
         dividends: [
-          // US: 30% withheld but treaty caps the credit at 15%
-          { grossEur: 1_000, withholdingOrigenEur: 300, sourceCountry: "US" },
+          // US: 30% withheld but treaty caps the credit at 15% → 750.
+          { grossEur: 5_000, withholdingOrigenEur: 1_500, sourceCountry: "US" },
         ],
       }),
     );
-    expect(est.ddiCreditEur).toBe(150);
-    // cuota íntegra 1000×20% = 200; resultado = 200 − 150
-    expect(est.resultadoEstimadoEur).toBe(50);
+    // RCM = 5000 − 1500 = 3500 → cuota 2500×20% + 1000×21% = 710.
+    expect(est.cuotaIntegraEur).toBe(710);
+    // Treaty cap 750, then capped again at the cuota íntegra → 710.
+    expect(est.ddiCreditEur).toBe(710);
+    expect(est.resultadoEstimadoEur).toBe(0);
   });
 
   it("subtracts destination withholding as payment on account (can go negative)", () => {
@@ -121,7 +126,9 @@ describe("estimateSavingsCuota", () => {
         dividends: [{ grossEur: 1_000, withholdingOrigenEur: 0, sourceCountry: "ES" }],
       }),
     );
-    expect(est.cuotaIntegraEur).toBe(200);
-    expect(est.resultadoEstimadoEur).toBe(-50);
+    // 1000 de dividendos quedan íntegramente bajo la exención de 1500.
+    expect(est.dividendExemptionAppliedEur).toBe(1_000);
+    expect(est.cuotaIntegraEur).toBe(0);
+    expect(est.resultadoEstimadoEur).toBe(-250);
   });
 });

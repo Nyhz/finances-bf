@@ -102,7 +102,8 @@ describe("recomputeLotsForAsset", () => {
     expect(second).toHaveLength(first.length);
     const projection = (rows: typeof first) => rows.map((r) => ({
       remainingQty: r.remainingQty,
-      unitCostEur: r.unitCostEur,
+      grossCostEur: r.grossCostEur,
+      feesEur: r.feesEur,
       originalQty: r.originalQty,
       originTransactionId: r.originTransactionId,
     }));
@@ -117,6 +118,33 @@ describe("recomputeLotsForAsset", () => {
     expect(() => {
       db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
     }).toThrow(/oversells/);
+  });
+
+  // Regression (QDVE): rounding the per-unit cost to cents and multiplying
+  // back by quantity inflated the basis (158 × roundEur(4966.94/158) = 4967.52
+  // instead of 4966.94). Cost must be stored as separate gross/fee totals and
+  // consumed exactly.
+  it("sell-all cost basis equals exactly what was paid (gross + fees)", () => {
+    const db = makeDb();
+    const { accountId, assetId } = seed(db);
+    insertTrade(db, accountId, assetId, { type: "buy", qty: 158, unitPriceEur: 31.43, feesEur: 1, tradedAt: Date.UTC(2025, 6, 8) });
+    insertTrade(db, accountId, assetId, { type: "buy", qty: 34, unitPriceEur: 33.35, feesEur: 1, tradedAt: Date.UTC(2025, 7, 1) });
+    const sell = insertTrade(db, accountId, assetId, { type: "sell", qty: 192, unitPriceEur: 41.965, feesEur: 3, tradedAt: Date.UTC(2026, 5, 11) });
+
+    db.transaction((tx) => { recomputeLotsForAsset(tx as unknown as DB, assetId); });
+
+    const consumptions = db.select().from(taxLotConsumptions).where(eq(taxLotConsumptions.saleTransactionId, sell)).all();
+    const costBasis = consumptions.reduce((s, c) => s + c.costBasisEur, 0);
+    // 158 × 31.43 + 1 + 34 × 33.35 + 1 = 6101.84 — to the cent, no rounding drift.
+    expect(costBasis).toBeCloseTo(6101.84, 2);
+
+    const lots = db.select().from(taxLots).where(eq(taxLots.assetId, assetId)).all();
+    const big = lots.find((l) => l.originalQty === 158)!;
+    const small = lots.find((l) => l.originalQty === 34)!;
+    expect(big.grossCostEur).toBeCloseTo(4965.94, 6);
+    expect(big.feesEur).toBe(1);
+    expect(small.grossCostEur).toBeCloseTo(1133.9, 6);
+    expect(small.feesEur).toBe(1);
   });
 
   it("ignores dividend transactions", () => {
@@ -211,7 +239,10 @@ describe("recomputeLotsForAsset invariants (property)", () => {
       // Invariant 2: cost conservation. Each consumption rounds to the cent,
       // so allow ±1 cent per consumption row.
       const consumedCost = consumptions.reduce((s, c) => s + c.costBasisEur, 0);
-      const remainingCost = lots.reduce((s, l) => s + l.remainingQty * l.unitCostEur, 0);
+      const remainingCost = lots.reduce(
+        (s, l) => s + (l.grossCostEur + l.feesEur) * (l.originalQty > 0 ? l.remainingQty / l.originalQty : 0),
+        0,
+      );
       const tolerance = 0.01 * Math.max(1, consumptions.length);
       expect(Math.abs(consumedCost + remainingCost - totalBuyCost)).toBeLessThanOrEqual(tolerance);
 

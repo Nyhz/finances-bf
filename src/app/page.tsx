@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { Suspense } from "react";
 import { Card } from "@/src/components/ui/Card";
-import { KPICard } from "@/src/components/ui/KPICard";
+import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { NetWorthChart } from "@/src/components/features/overview/NetWorthChart";
 import { OverviewFilters } from "@/src/components/features/overview/OverviewFilters";
@@ -48,47 +48,69 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 async function KpiRow({ filters }: { filters: Filters }) {
   const kpis = await getOverviewKpis(filters);
+  const pnlTone =
+    kpis.unrealizedPnlEur > 0
+      ? "text-success"
+      : kpis.unrealizedPnlEur < 0
+        ? "text-destructive"
+        : "";
   return (
-    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <KPICard label="Net Worth (EUR)" value={formatEur(kpis.totalNetWorthEur)} />
-      <KPICard label="Cash (EUR)" value={formatEur(kpis.cashEur)} />
-      <KPICard label="Invested (EUR)" value={formatEur(kpis.investedEur)} />
-      <KPICard
-        label="Unrealized P&L (EUR)"
-        value={
+    <Card className="p-0">
+      <div className="grid divide-y divide-border/60 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <div className="flex flex-col gap-1.5 p-5">
+          <span
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title="Valor total a precios de mercado: efectivo más posiciones valoradas."
+          >
+            Patrimonio total
+          </span>
+          <SensitiveValue className="text-3xl font-semibold tracking-tight tabular-nums">
+            {formatEur(kpis.totalNetWorthEur)}
+          </SensitiveValue>
+          <span className="text-xs text-muted-foreground">
+            Efectivo <SensitiveValue>{formatEur(kpis.cashEur)}</SensitiveValue> · invertido{" "}
+            <SensitiveValue>{formatEur(kpis.investedEur)}</SensitiveValue>
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5 p-5">
+          <span
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title="Diferencia entre el valor de mercado actual y lo que pagaste (comisiones incluidas). No tributa hasta que vendas."
+          >
+            Plusvalía latente
+          </span>
           <span className="flex items-baseline gap-2">
-            <span>{formatEur(kpis.unrealizedPnlEur)}</span>
+            <SensitiveValue
+              className={`text-3xl font-semibold tracking-tight tabular-nums ${pnlTone}`}
+            >
+              {formatEur(kpis.unrealizedPnlEur)}
+            </SensitiveValue>
             {kpis.unrealizedPnlPct != null && (
-              <span
-                className={`text-sm font-medium tabular-nums ${
-                  kpis.unrealizedPnlEur > 0
-                    ? "text-success"
-                    : kpis.unrealizedPnlEur < 0
-                      ? "text-destructive"
-                      : "text-muted-foreground"
-                }`}
-              >
+              <span className={`text-sm font-medium tabular-nums ${pnlTone}`}>
                 {`${kpis.unrealizedPnlPct >= 0 ? "+" : ""}${formatPercent(
                   kpis.unrealizedPnlPct,
                 )}`}
               </span>
             )}
           </span>
-        }
-      />
-    </section>
+          <span className="text-xs text-muted-foreground">
+            Sobre el coste de compra — no tributa hasta vender.
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
 async function NetWorthCard({ filters }: { filters: Filters }) {
   const series = await getNetWorthSeries(filters);
   return (
-    <Card title="Portfolio evolution">
+    <Card title="Evolución del patrimonio">
       {series.length === 0 ? (
         <StatesBlock
           mode="empty"
-          title="No valuation history"
-          description="Daily valuations will appear once prices have been synced."
+          title="Sin historial de valoraciones"
+          description="Las valoraciones diarias aparecerán cuando se sincronicen precios y haya transacciones."
         />
       ) : (
         <NetWorthChart data={series} />
@@ -110,23 +132,36 @@ async function SavingsKpiRow({
   range: OverviewRange;
 }) {
   const kpis = await getSavingsKpis(accountId, range);
-  const rangeLabel = range === "ALL" ? "total" : range;
+  const rangeLabel = range === "ALL" ? "histórico" : `últimos ${range}`;
   return (
-    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <KPICard label="Balance (EUR)" value={formatEur(kpis.balanceEur)} />
-      <KPICard
-        label={`Deposits · ${rangeLabel}`}
-        value={formatEur(kpis.depositsEur)}
-      />
-      <KPICard
-        label={`Withdrawals · ${rangeLabel}`}
-        value={formatEur(kpis.withdrawalsEur)}
-      />
-      <KPICard
-        label={`Interest · ${rangeLabel}`}
-        value={formatEur(kpis.interestEur)}
-      />
-    </section>
+    <Card className="p-0">
+      <div className="grid divide-y divide-border/60 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+        <div className="flex flex-col gap-1.5 p-5">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Saldo actual
+          </span>
+          <SensitiveValue className="text-3xl font-semibold tracking-tight tabular-nums">
+            {formatEur(kpis.balanceEur)}
+          </SensitiveValue>
+          <span className="text-xs text-muted-foreground">
+            Ingresos <SensitiveValue>{formatEur(kpis.depositsEur)}</SensitiveValue> · retiradas{" "}
+            <SensitiveValue>{formatEur(kpis.withdrawalsEur)}</SensitiveValue> ({rangeLabel})
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5 p-5">
+          <span
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title="Rendimiento del capital mobiliario — tributa en la base del ahorro."
+          >
+            Intereses cobrados
+          </span>
+          <SensitiveValue className="text-3xl font-semibold tracking-tight tabular-nums">
+            {formatEur(kpis.interestEur)}
+          </SensitiveValue>
+          <span className="text-xs text-muted-foreground">Periodo: {rangeLabel}.</span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -139,12 +174,12 @@ async function SavingsBalanceCard({
 }) {
   const series = await getSavingsBalanceSeries(accountId, range);
   return (
-    <Card title="Balance history">
+    <Card title="Evolución del saldo">
       {series.length < 2 ? (
         <StatesBlock
           mode="empty"
-          title="No balance history"
-          description="Balance movements will appear here once this account has activity."
+          title="Sin historial de saldo"
+          description="Los movimientos aparecerán cuando esta cuenta tenga actividad."
         />
       ) : (
         <SavingsBalanceChart data={series} />
@@ -190,9 +225,9 @@ export default async function OverviewPage({
     <div className="flex flex-col gap-6 p-8">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Resumen</h1>
           <p className="text-sm text-muted-foreground">
-            Snapshot of your portfolio across every account.
+            Tu cartera a precios de mercado, en todas las cuentas.
           </p>
         </div>
         <Suspense fallback={null}>
@@ -211,13 +246,13 @@ export default async function OverviewPage({
           </Suspense>
           <Suspense
             key={`bal:${suspenseKey}`}
-            fallback={<ChartCardSkeleton title="Balance history" />}
+            fallback={<ChartCardSkeleton title="Evolución del saldo" />}
           >
             <SavingsBalanceCard accountId={selectedAccount.id} range={range} />
           </Suspense>
           <Suspense
             key={`mov:${suspenseKey}`}
-            fallback={<TableCardSkeleton title="Recent movements" />}
+            fallback={<TableCardSkeleton title="Movimientos recientes" />}
           >
             <SavingsMovementsCard accountId={selectedAccount.id} range={range} />
           </Suspense>
@@ -229,13 +264,13 @@ export default async function OverviewPage({
           </Suspense>
           <Suspense
             key={`net:${suspenseKey}`}
-            fallback={<ChartCardSkeleton title="Net worth" />}
+            fallback={<ChartCardSkeleton title="Evolución del patrimonio" />}
           >
             <NetWorthCard filters={filters} />
           </Suspense>
           <Suspense
             key={`top:${suspenseKey}`}
-            fallback={<TableCardSkeleton title="Top positions" />}
+            fallback={<TableCardSkeleton title="Posiciones" />}
           >
             <TopPositionsCard filters={filters} />
           </Suspense>

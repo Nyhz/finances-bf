@@ -21,7 +21,8 @@ type FormState = {
   tradeDate: string;
   grossNative: string;
   currency: string;
-  fxRateToEur: string;
+  /** Broker's direction (DEGIRO): 1 EUR = X CCY. Always typed by hand. */
+  fxEurToCcy: string;
   withholdingOrigenNative: string;
   withholdingDestinoEur: string;
   sourceCountry: string;
@@ -49,7 +50,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
       // The payout currency is almost always the asset's quote currency —
       // default to it instead of EUR (audit H4).
       currency: assets[0]?.currency ?? "EUR",
-      fxRateToEur: "",
+      fxEurToCcy: "",
       withholdingOrigenNative: "",
       withholdingDestinoEur: "",
       sourceCountry: "",
@@ -125,8 +126,14 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
     };
   }, [open, needsFx, form.currency, form.tradeDate]);
 
-  const manualRate = form.fxRateToEur.trim() ? Number(form.fxRateToEur) : undefined;
-  const effectiveRate = needsFx ? (manualRate ?? fxPreview?.rate) : 1;
+  // FX is ALWAYS manual for non-EUR payouts: the daily stored rate never
+  // applies (it only powers the reference line and the deviation guard).
+  const manualEurToCcy = form.fxEurToCcy.trim() ? Number(form.fxEurToCcy) : undefined;
+  const effectiveRate = needsFx
+    ? manualEurToCcy != null && manualEurToCcy > 0
+      ? 1 / manualEurToCcy
+      : undefined
+    : 1;
   const grossNum = Number(form.grossNative);
   const whtOrigenNum = Number(form.withholdingOrigenNative || 0);
   const whtDestinoNum = Number(form.withholdingDestinoEur || 0);
@@ -145,7 +152,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
     setFieldErrors({});
     if (extra?.allowFxDeviation) acceptedFxRef.current = true;
 
-    const fxRate = form.fxRateToEur.trim();
+    const fxRate = form.fxEurToCcy.trim();
     const sourceCountry = form.sourceCountry.trim().toUpperCase();
     const payload = {
       accountId: form.accountId,
@@ -153,7 +160,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
       tradeDate: form.tradeDate,
       grossNative: Number(form.grossNative),
       currency: form.currency.toUpperCase(),
-      fxRateToEur: fxRate ? Number(fxRate) : undefined,
+      fxEurToCcy: fxRate ? Number(fxRate) : undefined,
       withholdingOrigenNative: form.withholdingOrigenNative
         ? Number(form.withholdingOrigenNative)
         : 0,
@@ -193,8 +200,8 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      title="Record dividend"
-      description="Gross dividend received from a held asset, net of withholding taxes."
+      title="Registrar dividendo"
+      description="Dividendo bruto recibido de un activo en cartera, neto de retenciones."
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         {banner && (
@@ -206,14 +213,14 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           </div>
         )}
 
-        <Field label="Account" errors={fieldErrors.accountId}>
+        <Field label="Cuenta" errors={fieldErrors.accountId}>
           <select
             value={form.accountId}
             onChange={(e) => update("accountId", e.target.value)}
             className={inputClass}
             required
           >
-            {accounts.length === 0 && <option value="">No accounts</option>}
+            {accounts.length === 0 && <option value="">Sin cuentas</option>}
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -222,14 +229,14 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           </select>
         </Field>
 
-        <Field label="Asset" errors={fieldErrors.assetId}>
+        <Field label="Activo" errors={fieldErrors.assetId}>
           <select
             value={form.assetId}
             onChange={(e) => onAssetChange(e.target.value)}
             className={inputClass}
             required
           >
-            {assets.length === 0 && <option value="">No assets</option>}
+            {assets.length === 0 && <option value="">Sin activos</option>}
             {assets.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -238,7 +245,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           </select>
         </Field>
 
-        <Field label="Date" errors={fieldErrors.tradeDate}>
+        <Field label="Fecha" errors={fieldErrors.tradeDate}>
           <input
             type="date"
             value={form.tradeDate}
@@ -249,7 +256,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label={`Gross amount (${form.currency})`} errors={fieldErrors.grossNative}>
+          <Field label={`Importe bruto (${form.currency})`} errors={fieldErrors.grossNative}>
             <input
               type="number"
               inputMode="decimal"
@@ -262,7 +269,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
             />
           </Field>
 
-          <Field label="Currency" errors={fieldErrors.currency}>
+          <Field label="Divisa" errors={fieldErrors.currency}>
             <select
               value={form.currency}
               onChange={(e) => update("currency", e.target.value)}
@@ -272,49 +279,42 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
               {currencyOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
-                  {c === selectedAsset?.currency ? " (asset currency)" : ""}
+                  {c === selectedAsset?.currency ? " (divisa del activo)" : ""}
                 </option>
               ))}
             </select>
             <span className="text-xs text-muted-foreground">
-              The currency the payout arrived in — usually the asset&apos;s own.
+              La divisa en la que llegó el pago — normalmente la del propio activo.
             </span>
           </Field>
         </div>
 
         {needsFx && (
           <Field
-            label={`FX rate — 1 ${form.currency} = ? EUR (optional)`}
-            errors={fieldErrors.fxRateToEur}
+            label={`Tipo de cambio — 1 EUR = ? ${form.currency} (el de tu broker, obligatorio)`}
+            errors={fieldErrors.fxEurToCcy}
           >
             <input
               type="number"
               inputMode="decimal"
               step="any"
               min="0"
-              value={form.fxRateToEur}
-              onChange={(e) => update("fxRateToEur", e.target.value)}
+              value={form.fxEurToCcy}
+              onChange={(e) => update("fxEurToCcy", e.target.value)}
               className={inputClass}
-              placeholder={
-                fxPreview
-                  ? `Leave blank to use ${fxPreview.rate.toFixed(6)}`
-                  : "Leave blank to use the stored rate"
-              }
+              placeholder={`p. ej. ${fxPreview ? (1 / fxPreview.rate).toFixed(4) : "1,15"} — tal como lo muestra DEGIRO`}
+              required
             />
             {fxPreview && (
               <span className="text-xs text-muted-foreground">
-                Stored rate: 1 {form.currency} = {fxPreview.rate.toFixed(6)} EUR
-                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""}
-                {fxPreview.stale
-                  ? " — stale: no rate for this date, most recent earlier rate shown"
-                  : ""}
+                Referencia diaria: 1 EUR = {(1 / fxPreview.rate).toFixed(4)} {form.currency}
+                {fxPreview.rateDate ? ` (${fxPreview.rateDate})` : ""} — solo salvaguarda,
+                nunca se aplica automáticamente.
               </span>
             )}
             {fxUnavailable && (
-              <span className="text-xs text-destructive">
-                No stored rate for this currency/date — enter how many EUR one{" "}
-                {form.currency} is worth (e.g. 0.92, never the EUR→{form.currency}{" "}
-                direction).
+              <span className="text-xs text-muted-foreground">
+                Sin referencia diaria para esta fecha — se omite la salvaguarda de desviación.
               </span>
             )}
           </Field>
@@ -322,7 +322,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
 
         <div className="grid grid-cols-2 gap-3">
           <Field
-            label={`Withholding origen (${form.currency})`}
+            label={`Retención en origen (${form.currency})`}
             errors={fieldErrors.withholdingOrigenNative}
           >
             <input
@@ -338,7 +338,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
           </Field>
 
           <Field
-            label="Withholding destino (EUR)"
+            label="Retención en destino (EUR)"
             errors={fieldErrors.withholdingDestinoEur}
           >
             <input
@@ -357,25 +357,25 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
         {estimatedNetEur != null && (
           <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
             <span className="text-muted-foreground">
-              Estimated net received
-              {manualRate != null ? " (your rate)" : fxPreview?.stale ? " (stale rate)" : ""}
+              Neto estimado recibido
+              {needsFx ? " (con tu tipo)" : ""}
             </span>
             <SensitiveValue>{formatEur(estimatedNetEur)}</SensitiveValue>
           </div>
         )}
 
-        <Field label="Source country (optional, ISO-2)" errors={fieldErrors.sourceCountry}>
+        <Field label="País de origen (opcional, ISO-2)" errors={fieldErrors.sourceCountry}>
           <input
             type="text"
             value={form.sourceCountry}
             onChange={(e) => update("sourceCountry", e.target.value.toUpperCase())}
             className={inputClass}
             maxLength={2}
-            placeholder="e.g. US"
+            placeholder="p. ej. US"
           />
         </Field>
 
-        <Field label="Notes (optional)" errors={fieldErrors.notes}>
+        <Field label="Notas (opcional)" errors={fieldErrors.notes}>
           <textarea
             value={form.notes}
             onChange={(e) => update("notes", e.target.value)}
@@ -391,7 +391,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
             onClick={() => handleOpenChange(false)}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           {fxDeviationWarning ? (
             <Button
@@ -400,7 +400,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
               disabled={pending}
               onClick={() => submit({ allowFxDeviation: true })}
             >
-              Use my rate anyway
+              Usar mi tipo igualmente
             </Button>
           ) : null}
           <Button
@@ -409,7 +409,7 @@ export function CreateDividendModal({ open, onOpenChange, accounts, assets }: Pr
               pending || !form.accountId || !form.assetId || !form.grossNative || !form.currency
             }
           >
-            {pending ? "Saving…" : "Record dividend"}
+            {pending ? "Guardando…" : "Registrar dividendo"}
           </Button>
         </div>
       </form>

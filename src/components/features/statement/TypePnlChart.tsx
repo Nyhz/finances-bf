@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
+import { assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
 
 export type TypePnlRow = {
   assetType: string;
@@ -40,7 +41,7 @@ export function TypePnlChart({ rows }: { rows: TypePnlRow[] }) {
     if (!props.active || !p) return null;
     return (
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
-        <p className="text-xs text-muted-foreground">{p.assetType}</p>
+        <p className="text-xs text-muted-foreground">{assetTypeLabel(p.assetType)}</p>
         <p className="text-sm font-semibold text-foreground">
           <SensitiveValue>
             {`${p.pnlEur >= 0 ? "+" : ""}${formatMoney(p.pnlEur)}`}
@@ -84,6 +85,7 @@ export function TypePnlChart({ rows }: { rows: TypePnlRow[] }) {
           tickLine={false}
           axisLine={false}
           tick={{ fontSize: 12 }}
+          tickFormatter={assetTypeLabel}
           width={110}
         />
         <Tooltip

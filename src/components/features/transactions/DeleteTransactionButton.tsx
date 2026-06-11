@@ -24,7 +24,7 @@ export function DeleteTransactionButton({ id }: { id: string }) {
       <Button
         variant="ghost"
         size="icon"
-        aria-label="Delete transaction"
+        aria-label="Eliminar transacción"
         onClick={() => setOpen(true)}
       >
         <Trash2 className="h-4 w-4" />
@@ -32,12 +32,12 @@ export function DeleteTransactionButton({ id }: { id: string }) {
       <ConfirmModal
         open={open}
         onOpenChange={setOpen}
-        title="Delete transaction"
+        title="Eliminar transacción"
         description={
           error ??
-          "This reverses the position and cash-balance impact and writes an audit event. This cannot be undone."
+          "Revierte el impacto en la posición y el saldo de efectivo y registra un evento de auditoría. No se puede deshacer."
         }
-        confirmLabel="Delete"
+        confirmLabel="Eliminar"
         onConfirm={onConfirm}
       />
     </>

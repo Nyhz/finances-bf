@@ -25,11 +25,19 @@ const sample = (overrides?: Partial<TaxReport["totals"]>): TaxReport => ({
 
 describe("buildCasillasCsv", () => {
   it("emits one row per casilla with pipe separator and UTF-8 BOM", () => {
-    const csv = buildCasillasCsv(sample());
+    const csv = buildCasillasCsv(sample(), 18);
     expect(csv.startsWith("\uFEFF")).toBe(true);
     expect(csv).toContain("0326");
     expect(csv).toContain("0027");
     expect(csv).toContain("0588");
     expect(csv).toContain("0343|");
+  });
+
+  it("prints the externally-computed (cuota-capped) DDI verbatim", () => {
+    // Audit F3: the CSV used to compute its own UNCAPPED DDI and disagree
+    // with the PDF in loss years \u2014 the capped value must flow in.
+    const csv = buildCasillasCsv(sample(), 0);
+    const ddiLine = csv.split("\n").find((l) => l.startsWith("0588"));
+    expect(ddiLine?.endsWith("|0.00")).toBe(true);
   });
 });

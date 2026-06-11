@@ -69,10 +69,10 @@ export function StatementValueChart({ data }: { data: NetWorthPoint[] }) {
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
         <p className="text-xs text-muted-foreground">{formatTooltipDate(p.dateIso)}</p>
         <p className="text-sm font-semibold text-foreground">
-          Value: <SensitiveValue>{formatMoney(p.valueEur)}</SensitiveValue>
+          Valor: <SensitiveValue>{formatMoney(p.valueEur)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
-          Invested: <SensitiveValue>{formatMoney(p.investedEur)}</SensitiveValue>
+          Invertido: <SensitiveValue>{formatMoney(p.investedEur)}</SensitiveValue>
         </p>
       </div>
     );
@@ -134,11 +134,11 @@ export function StatementValueChart({ data }: { data: NetWorthPoint[] }) {
       <div className="mt-2 flex items-center gap-5 px-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="h-0.5 w-4 rounded-full bg-chart-1" aria-hidden />
-          Market value
+          Valor de mercado
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-0.5 w-4 rounded-full bg-muted-foreground" aria-hidden />
-          Invested capital
+          Capital invertido
         </span>
       </div>
     </div>

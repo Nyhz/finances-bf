@@ -26,7 +26,7 @@ export function TransactionsExtraActions({ accounts, assets }: Props) {
           disabled={disabled}
         >
           <TrendingUp className="h-4 w-4" />
-          Record dividend
+          Registrar dividendo
         </Button>
         <Button
           size="md"
@@ -35,7 +35,7 @@ export function TransactionsExtraActions({ accounts, assets }: Props) {
           disabled={disabled}
         >
           <ArrowLeftRight className="h-4 w-4" />
-          Record swap
+          Registrar swap
         </Button>
       </div>
       <CreateSwapModal

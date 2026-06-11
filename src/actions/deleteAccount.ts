@@ -28,7 +28,7 @@ export async function deleteAccount(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -82,10 +82,16 @@ export async function deleteAccount(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown DB error";
     if (message === "account has transactions or cash movements") {
-      return { ok: false, error: { code: "conflict", message } };
+      return {
+        ok: false,
+        error: {
+          code: "conflict",
+          message: "La cuenta tiene transacciones o movimientos de efectivo — elimínalos primero.",
+        },
+      };
     }
     if (message.startsWith("account not found")) {
-      return { ok: false, error: { code: "not_found", message } };
+      return { ok: false, error: { code: "not_found", message: "cuenta no encontrada" } };
     }
     return { ok: false, error: { code: "db", message } };
   }

@@ -57,7 +57,7 @@ export function OverviewFilters({ accounts, range, accountIds }: Props) {
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
       <div
         role="group"
-        aria-label="Account filter"
+        aria-label="Filtro de cuenta"
         className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1"
       >
         <button
@@ -71,7 +71,7 @@ export function OverviewFilters({ accounts, range, accountIds }: Props) {
               : "text-muted-foreground hover:bg-accent hover:text-foreground",
           )}
         >
-          All
+          Todas
         </button>
         {accounts.map((a) => {
           const active = accountIds[0] === a.id;
@@ -96,7 +96,7 @@ export function OverviewFilters({ accounts, range, accountIds }: Props) {
 
       <div
         role="tablist"
-        aria-label="Range"
+        aria-label="Periodo"
         className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1"
       >
         {OVERVIEW_RANGES.map((r) => {
@@ -115,7 +115,7 @@ export function OverviewFilters({ accounts, range, accountIds }: Props) {
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
-              {r}
+              {r === "ALL" ? "Todo" : r}
             </button>
           );
         })}

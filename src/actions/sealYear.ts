@@ -7,6 +7,7 @@ import { auditEvents, taxYearSnapshots } from "../db/schema";
 import { buildTaxReport } from "../server/tax/report";
 import { computeInformationalModelsStatus } from "../server/tax/m720";
 import { reportContentHash } from "../server/tax/seals";
+import { getInterestForYearSync } from "../server/tax/interest";
 import { aggregateBlocksFromBalances } from "../server/tax/m720Aggregate";
 import { ACTOR, type ActionResult, revalidateTaxEvent } from "./_shared";
 import { sealYearSchema } from "./sealYear.schema";
@@ -16,13 +17,13 @@ export async function sealYear(
   db: DB = defaultDb,
 ): Promise<ActionResult<{ year: number; snapshotId: string }>> {
   const parsed = sealYearSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: { code: "validation", message: "invalid input" } };
+  if (!parsed.success) return { ok: false, error: { code: "validation", message: "Datos no válidos" } };
   const { year, notes, acknowledgeUnvalued } = parsed.data;
 
   try {
     const result = db.transaction((tx) => {
       const existing = tx.select().from(taxYearSnapshots).where(eq(taxYearSnapshots.year, year)).get();
-      if (existing) throw new Error(`year ${year} is already sealed`);
+      if (existing) throw new Error(`el ejercicio ${year} ya está sellado`);
       const report = buildTaxReport(tx as unknown as DB, year);
       const blocks = aggregateBlocksFromBalances(report.yearEndBalances);
       const models = computeInformationalModelsStatus(tx as unknown as DB, year, blocks);
@@ -39,7 +40,10 @@ export async function sealYear(
             `Set a manual price for the affected assets, or seal with explicit acknowledgement.`,
         );
       }
-      const payload = { report, contentHash: reportContentHash(report), ...models };
+      // Freeze interest too: the sealed PDF's cuota estimate must be fully
+      // reproducible from the snapshot (audit F8).
+      const interestEur = getInterestForYearSync(year, tx as unknown as DB);
+      const payload = { report, contentHash: reportContentHash(report), interestEur, ...models };
       const id = ulid();
       tx.insert(taxYearSnapshots).values({
         id, year,
@@ -67,7 +71,16 @@ export async function sealYear(
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     if (message.startsWith("cannot seal")) {
-      return { ok: false, error: { code: "conflict", message } };
+      // The thrown message is an internal English sentinel; rebuild the
+      // user-facing sentence in Spanish from its parts.
+      const m = message.match(
+        /^cannot seal (\d+): unvalued foreign year-end balances \((.+)\)\./,
+      );
+      const friendly = m
+        ? `No se puede sellar ${m[1]}: hay saldos extranjeros sin valorar a cierre de ejercicio (${m[2]}). ` +
+          `Establece un precio manual para los activos afectados, o sella con confirmación explícita.`
+        : "No se puede sellar el ejercicio: hay saldos extranjeros sin valorar a cierre de ejercicio.";
+      return { ok: false, error: { code: "conflict", message: friendly } };
     }
     return { ok: false, error: { code: "db", message } };
   }

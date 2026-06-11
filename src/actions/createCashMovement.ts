@@ -10,8 +10,7 @@ import {
   auditEvents,
   type AccountCashMovement,
 } from "../db/schema";
-import { FxDeviationError, resolveFxForDate } from "./_fx";
-import { FxUnavailableError } from "../lib/fx";
+import { FxDeviationError, FxManualRequiredError, requireManualFx } from "./_fx";
 import {
   ACTOR,
   type ActionResult,
@@ -47,7 +46,7 @@ export async function createCashMovement(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -61,7 +60,7 @@ export async function createCashMovement(
       const account = tx.select().from(accounts).where(eq(accounts.id, data.accountId)).get();
       if (!account) throw new Error(`account not found: ${data.accountId}`);
 
-      const fx = resolveFxForDate(tx, currency, data.occurredAt, data.fxRateToEur, {
+      const fx = requireManualFx(tx, currency, data.occurredAt, data.fxEurToCcy, {
         allowDeviation: data.allowFxDeviation,
       });
       const rate = fx.rate;
@@ -151,17 +150,13 @@ export async function createCashMovement(
     revalidateCashMovement(data.accountId);
     return { ok: true, data: inserted };
   } catch (err) {
-    if (err instanceof FxUnavailableError) {
+    if (err instanceof FxManualRequiredError) {
       return {
         ok: false,
         error: {
           code: "validation",
           message: err.message,
-          fieldErrors: {
-            fxRateToEur: [
-              `No stored FX rate for ${err.currency} on or before ${err.isoDate} — enter the rate manually.`,
-            ],
-          },
+          fieldErrors: { fxEurToCcy: [err.message] },
         },
       };
     }
@@ -171,7 +166,7 @@ export async function createCashMovement(
         error: {
           code: "fx_deviation",
           message: err.message,
-          fieldErrors: { fxRateToEur: [err.message] },
+          fieldErrors: { fxEurToCcy: [err.message] },
         },
       };
     }
@@ -182,12 +177,12 @@ export async function createCashMovement(
         error: {
           code: "duplicate",
           message:
-            "An identical cash movement (same account, kind, date, amount, currency) already exists.",
+            "Ya existe un movimiento de efectivo idéntico (misma cuenta, tipo, fecha, importe y divisa).",
         },
       };
     }
     if (message.startsWith("account not found")) {
-      return { ok: false, error: { code: "not_found", message } };
+      return { ok: false, error: { code: "not_found", message: "cuenta no encontrada" } };
     }
     return { ok: false, error: { code: "db", message } };
   }

@@ -10,7 +10,6 @@ import {
   Receipt,
   ScrollText,
   Settings,
-  Upload,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -23,18 +22,17 @@ type NavItem = {
 };
 
 const primaryItems: NavItem[] = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/accounts", label: "Accounts", icon: Wallet },
-  { href: "/assets", label: "Assets", icon: Coins },
-  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/taxes", label: "Taxes", icon: Receipt },
-  { href: "/statement", label: "Statement", icon: FileText },
+  { href: "/", label: "Resumen", icon: LayoutDashboard },
+  { href: "/statement", label: "Extracto", icon: FileText },
+  { href: "/accounts", label: "Cuentas", icon: Wallet },
+  { href: "/assets", label: "Activos", icon: Coins },
+  { href: "/transactions", label: "Transacciones", icon: ArrowLeftRight },
+  { href: "/taxes", label: "Fiscalidad", icon: Receipt },
 ];
 
 const secondaryItems: NavItem[] = [
-  { href: "/audit", label: "Audit", icon: ScrollText },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/audit", label: "Auditoría", icon: ScrollText },
+  { href: "/settings", label: "Ajustes", icon: Settings },
 ];
 
 function isActive(pathname: string | null, href: string): boolean {

@@ -1,7 +1,42 @@
 import { jsPDF } from "jspdf";
 import type { DividendReportRow, SaleReportRow, TaxReport } from "../../server/tax/report";
 import type { InformationalModelsStatus } from "../../server/tax/m720";
-import { estimateSavingsCuota } from "../../server/tax/cuota";
+import { buildPrevision } from "../../server/tax/prevision";
+import {
+  ACCENT,
+  ACCENT_SOFT,
+  type Col,
+  type Cursor,
+  CONTENT_W,
+  FAINT,
+  HAIR,
+  INK,
+  M,
+  MUTED,
+  NEG,
+  PANEL,
+  POS,
+  RIGHT,
+  WHITE,
+  continuationHeader,
+  donut,
+  ensureRoom,
+  fill,
+  finishFooters,
+  fmtDateIso,
+  fmtEur,
+  hBars,
+  headerBand,
+  kicker,
+  sectionTitle,
+  statCards,
+  stroke,
+  tableHead,
+  text,
+  toneFor,
+  totalRule,
+  zebra,
+} from "./_kit";
 
 export type TaxPdfInput = {
   year: number;
@@ -11,14 +46,6 @@ export type TaxPdfInput = {
   /** Intereses de cuentas remuneradas del ejercicio (RCM), informativo. */
   interestEur: number;
 };
-
-const PAGE_BOTTOM = 800;
-const L = 40;
-const R = 555;
-
-function fmt(n: number): string {
-  return `${n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
-}
 
 type AssetSalesGroup = {
   label: string;
@@ -66,7 +93,6 @@ function groupSalesByAsset(sales: SaleReportRow[]): AssetSalesGroup[] {
 
 type AssetDividendGroup = {
   label: string;
-  isin: string | null;
   country: string | null;
   payments: number;
   grossEur: number;
@@ -82,7 +108,6 @@ function groupDividendsByAsset(dividends: DividendReportRow[]): AssetDividendGro
     if (!g) {
       g = {
         label: d.assetName ?? d.assetId,
-        isin: d.isin,
         country: d.sourceCountry,
         payments: 0,
         grossEur: 0,
@@ -101,316 +126,489 @@ function groupDividendsByAsset(dividends: DividendReportRow[]): AssetDividendGro
   return [...byAsset.values()].sort((a, b) => a.label.localeCompare(b.label, "es"));
 }
 
+const truncate = (t: string, max: number) => (t.length > max ? `${t.slice(0, max - 1)}…` : t);
+
 export function buildTaxReportPdf(input: TaxPdfInput): Uint8Array {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  let y = 40;
-
-  const ensureRoom = (needed: number) => {
-    if (y + needed > PAGE_BOTTOM) {
-      doc.addPage();
-      y = 40;
-    }
-  };
-  const sectionTitle = (text: string) => {
-    ensureRoom(40);
-    y += 8;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(text, L, y);
-    y += 6;
-    doc.setDrawColor(120);
-    doc.line(L, y, R, y);
-    y += 14;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-  };
-  const kv = (label: string, value: string, bold = false) => {
-    ensureRoom(14);
-    doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.text(label, L, y);
-    doc.text(value, R, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    y += 13;
-  };
-  const truncate = (text: string, max: number) =>
-    text.length > max ? `${text.slice(0, max - 1)}…` : text;
-
-  // ── Cabecera ────────────────────────────────────────────────────────────
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(`Informe fiscal IRPF — ejercicio ${input.year}`, L, y);
-  y += 20;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(90);
-  doc.text(
-    input.sealedAt
-      ? `Ejercicio sellado el ${new Date(input.sealedAt).toISOString().slice(0, 10)}`
-      : "Ejercicio sin sellar (datos en vivo)",
-    L,
-    y,
-  );
-  doc.setTextColor(0);
-  y += 16;
-
-  // ── 1. Resumen del ejercicio ────────────────────────────────────────────
+  const cur: Cursor = { doc, y: 0 };
   const t = input.report.totals;
-  sectionTitle("1. Resumen del ejercicio");
-  kv("Importe total de transmisiones", fmt(t.proceedsEur));
-  kv("Coste de adquisición (FIFO, comisiones de compra incluidas)", fmt(t.costBasisEur));
-  kv("Comisiones de venta deducidas", fmt(t.feesEur));
-  kv("Ganancias patrimoniales realizadas", fmt(t.realizedGainsEur));
-  kv("Pérdidas patrimoniales computables", fmt(t.realizedLossesComputableEur));
-  kv("Pérdidas no computables (recompra, art. 33.5)", fmt(t.nonComputableLossesEur));
-  kv("Saldo neto computable de ganancias y pérdidas", fmt(t.netComputableEur), true);
-  kv("Dividendos brutos", fmt(t.dividendsGrossEur));
-  kv("Retenciones en origen (extranjero)", fmt(t.withholdingOrigenTotalEur));
-  kv("Retenciones en destino (pagos a cuenta)", fmt(t.withholdingDestinoTotalEur));
-  if (input.interestEur !== 0) kv("Intereses de cuentas (RCM)", fmt(input.interestEur));
+  const prevision = buildPrevision(input.report, input.interestEur);
+  const est = prevision.cuota;
+
+  const room = (needed: number, onNewPage?: (c: Cursor) => void) =>
+    ensureRoom(cur, needed, (c) => {
+      continuationHeader(c, `Informe fiscal IRPF · ejercicio ${input.year}`);
+      onNewPage?.(c);
+    });
+
+  // ── Cabecera ──────────────────────────────────────────────────────────────
+  cur.y = headerBand(doc, {
+    title: "Informe fiscal IRPF · Hacienda Foral de Bizkaia",
+    big: `Ejercicio ${input.year}`,
+    subtitle: "Ganancias patrimoniales, dividendos y previsión foral · NF 13/2013",
+    metaLines: [`Generado el ${fmtDateIso(Date.now())}`],
+    badge: input.sealedAt
+      ? { label: `Sellado el ${fmtDateIso(input.sealedAt)}`, tone: "accent" }
+      : { label: "Sin sellar · datos en vivo", tone: "muted" },
+  });
+
+  // ── Tarjetas de resumen ───────────────────────────────────────────────────
+  const rcm = t.dividendsGrossEur + input.interestEur;
+  statCards(cur, [
+    {
+      kicker: "Resultado de ventas",
+      value: fmtEur(t.netComputableEur),
+      sub: `${input.report.sales.length} venta${input.report.sales.length === 1 ? "" : "s"} · saldo computable`,
+      tone: toneFor(t.netComputableEur),
+    },
+    {
+      kicker: "Dividendos e intereses",
+      value: fmtEur(rcm),
+      sub:
+        t.withholdingOrigenTotalEur + t.withholdingDestinoTotalEur > 0
+          ? `ya retenido ${fmtEur(t.withholdingOrigenTotalEur + t.withholdingDestinoTotalEur)}`
+          : "sin retenciones",
+    },
+    {
+      kicker: est.resultadoEstimadoEur >= 0 ? "A pagar (estimado)" : "A devolver (estimado)",
+      value: fmtEur(Math.abs(est.resultadoEstimadoEur)),
+      sub: `previsión foral · base ${fmtEur(est.baseAhorroEur)}`,
+    },
+  ]);
+
+  // ── 1 · Resumen del ejercicio ─────────────────────────────────────────────
+  sectionTitle(cur, 1, "Resumen del ejercicio");
+  const kv = (label: string, value: string, opts: { bold?: boolean; tone?: typeof INK } = {}) => {
+    room(16);
+    doc.setFont("helvetica", opts.bold ? "bold" : "normal");
+    doc.setFontSize(8.5);
+    text(doc, opts.bold ? INK : MUTED);
+    doc.text(label, M, cur.y);
+    text(doc, opts.tone ?? INK);
+    doc.setFont("helvetica", opts.bold ? "bold" : "normal");
+    doc.text(value, RIGHT, cur.y, { align: "right" });
+    text(doc, INK);
+    cur.y += 6;
+    stroke(doc, HAIR);
+    doc.setLineWidth(0.5);
+    doc.line(M, cur.y, RIGHT, cur.y);
+    cur.y += 11;
+  };
+  kv("Importe total de transmisiones", fmtEur(t.proceedsEur));
+  kv("Coste de adquisición (FIFO, comisiones de compra incluidas)", fmtEur(t.costBasisEur));
+  kv("Comisiones de venta deducidas", fmtEur(t.feesEur));
+  kv("Ganancias patrimoniales realizadas", fmtEur(t.realizedGainsEur), { tone: POS });
+  kv("Pérdidas patrimoniales computables", fmtEur(t.realizedLossesComputableEur), {
+    tone: t.realizedLossesComputableEur < 0 ? NEG : INK,
+  });
+  if (t.nonComputableLossesEur > 0) {
+    kv("Pérdidas no computables (recompra, art. 43)", fmtEur(t.nonComputableLossesEur));
+  }
+  kv("Saldo neto computable de ganancias y pérdidas", fmtEur(t.netComputableEur), {
+    bold: true,
+    tone: toneFor(t.netComputableEur),
+  });
+  kv("Dividendos brutos", fmtEur(t.dividendsGrossEur));
+  kv("Retenciones en origen (extranjero)", fmtEur(t.withholdingOrigenTotalEur));
+  kv("Retenciones en destino (pagos a cuenta)", fmtEur(t.withholdingDestinoTotalEur));
+  if (input.interestEur !== 0) kv("Intereses de cuentas (RCM)", fmtEur(input.interestEur));
   if (input.report.excludedSales && input.report.excludedSales.count > 0) {
-    ensureRoom(14);
-    doc.setTextColor(90);
-    doc.setFontSize(8);
+    room(12);
+    doc.setFontSize(7);
+    text(doc, FAINT);
     doc.text(
-      `Nota: ${input.report.excludedSales.count} microtransmisiones excluidas por umbral de 1 € ` +
-        `(transmisión ${fmt(input.report.excludedSales.proceedsEur)}, coste ${fmt(input.report.excludedSales.costBasisEur)}).`,
-      L,
-      y,
+      `${input.report.excludedSales.count} microtransmisiones excluidas por umbral de 1 € ` +
+        `(transmisión ${fmtEur(input.report.excludedSales.proceedsEur)}, coste ${fmtEur(input.report.excludedSales.costBasisEur)}).`,
+      M,
+      cur.y,
     );
-    doc.setTextColor(0);
-    doc.setFontSize(9);
-    y += 13;
+    text(doc, INK);
+    cur.y += 14;
+  }
+  cur.y += 6;
+
+  // ── 2 · Declaración ───────────────────────────────────────────────────────
+  sectionTitle(
+    cur,
+    2,
+    "Declaración — operaciones a transcribir en Rentanet",
+    "Una fila por pareja venta / compra (FIFO). Valores históricos sin actualizar: el programa foral aplica los coeficientes a partir de las fechas.",
+  );
+  const declaration = input.report.declaration ?? [];
+  if (declaration.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    text(doc, MUTED);
+    doc.text("Sin transmisiones en el ejercicio.", M, cur.y);
+    text(doc, INK);
+    cur.y += 20;
+  } else {
+    const cols: Col[] = [
+      { label: "Activo", x: M },
+      { label: "F. adq.", x: M + 190, align: "right" },
+      { label: "F. venta", x: M + 244, align: "right" },
+      { label: "Cant.", x: M + 282, align: "right" },
+      { label: "V. adquis.", x: M + 344, align: "right" },
+      { label: "V. transm.", x: M + 406, align: "right" },
+      { label: "Gastos", x: M + 448, align: "right" },
+      { label: "Resultado", x: RIGHT, align: "right" },
+    ];
+    tableHead(cur, cols);
+    let totAdq = 0;
+    let totTrans = 0;
+    let totGastos = 0;
+    let totRes = 0;
+    declaration.forEach((d, i) => {
+      const rowH = d.recompra ? 26 : 16;
+      room(rowH + 6, (c) => tableHead(c, cols));
+      zebra(cur, i, rowH);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      text(doc, INK);
+      doc.text(truncate(d.assetName ?? d.isin ?? d.assetId, 24), M, cur.y);
+      doc.text(fmtDateIso(d.acquiredAt), cols[1].x, cur.y, { align: "right" });
+      doc.text(fmtDateIso(d.soldAt), cols[2].x, cur.y, { align: "right" });
+      doc.text(d.qty.toLocaleString("es-ES", { maximumFractionDigits: 6 }), cols[3].x, cur.y, { align: "right" });
+      doc.text(fmtEur(d.valorAdquisicionEur), cols[4].x, cur.y, { align: "right" });
+      doc.text(fmtEur(d.valorTransmisionEur), cols[5].x, cur.y, { align: "right" });
+      doc.text(fmtEur(d.gastosTransmisionEur), cols[6].x, cur.y, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      text(doc, toneFor(d.resultadoEur));
+      doc.text(fmtEur(d.resultadoEur), RIGHT, cur.y, { align: "right" });
+      text(doc, INK);
+      if (d.recompra) {
+        cur.y += 10;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        text(doc, NEG);
+        doc.text(
+          "[!] Recompra de valores homogéneos — marcar la norma antiaplicación (art. 43) en esta operación.",
+          M + 8,
+          cur.y,
+        );
+        text(doc, INK);
+      }
+      cur.y += 16;
+      totAdq += d.valorAdquisicionEur;
+      totTrans += d.valorTransmisionEur;
+      totGastos += d.gastosTransmisionEur;
+      totRes += d.resultadoEur;
+    });
+    room(20);
+    cur.y += 4;
+    totalRule(cur);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("Total", M, cur.y);
+    doc.text(fmtEur(totAdq), cols[4].x, cur.y, { align: "right" });
+    doc.text(fmtEur(totTrans), cols[5].x, cur.y, { align: "right" });
+    doc.text(fmtEur(totGastos), cols[6].x, cur.y, { align: "right" });
+    text(doc, toneFor(totRes));
+    doc.text(fmtEur(totRes), RIGHT, cur.y, { align: "right" });
+    text(doc, INK);
+    cur.y += 22;
   }
 
-  // ── 2. Estimación de cuota (base del ahorro foral) ──────────────────────
-  const est = estimateSavingsCuota(input.report, input.interestEur);
-  sectionTitle("2. Estimación de cuota — base del ahorro");
-  doc.setTextColor(90);
-  doc.setFontSize(8);
-  ensureRoom(12);
-  doc.text(est.scaleLabel + " — territorios históricos de Bizkaia, Gipuzkoa y Álava (armonizada)", L, y);
-  doc.setTextColor(0);
-  doc.setFontSize(9);
-  y += 14;
-  kv("Saldo de ganancias y pérdidas (transmisiones)", fmt(est.saldoGananciasEur));
-  kv("Saldo de rendimientos del capital mobiliario", fmt(est.saldoRcmEur));
-  if (est.lossOffsetAppliedEur > 0) {
-    kv("Pérdida compensada contra RCM (límite 25%)", fmt(-est.lossOffsetAppliedEur));
+  // ── 3 · Previsión foral ───────────────────────────────────────────────────
+  room(180);
+  sectionTitle(
+    cur,
+    3,
+    "Previsión — cálculo foral estimado",
+    `${est.scaleLabel} · coeficientes DF 125/2024 (2025) / DF 115/2025 (2026) · arts. 45 y 66 NF 13/2013. ` +
+      "Estimación orientativa de la base del ahorro aislada — el cálculo vinculante es el del programa de renta foral.",
+  );
+  const pkv = (label: string, value: string, opts: { bold?: boolean; tone?: typeof INK } = {}) => {
+    room(15);
+    doc.setFont("helvetica", opts.bold ? "bold" : "normal");
+    doc.setFontSize(8.5);
+    text(doc, opts.bold ? INK : MUTED);
+    doc.text(label, M + 10, cur.y);
+    text(doc, opts.tone ?? INK);
+    doc.text(value, RIGHT - 10, cur.y, { align: "right" });
+    text(doc, INK);
+    cur.y += 14.5;
+  };
+  if (!prevision.coefficientsAvailable) {
+    pkv("Sin tabla de coeficientes publicada para este ejercicio", "—");
   }
+  pkv("Saldo histórico declarado (sin coeficientes)", fmtEur(t.netComputableEur));
+  pkv("Saldo foral previsto (coste actualizado)", fmtEur(prevision.saldoGananciasForalEur), { bold: true });
+  if (prevision.coefficientReliefEur !== 0) {
+    pkv("Menor ganancia por coeficientes de actualización", fmtEur(-prevision.coefficientReliefEur), { tone: POS });
+  }
+  if (prevision.perdidasNoComputablesEur > 0) {
+    pkv("Pérdidas no computables (recompra, art. 43)", fmtEur(prevision.perdidasNoComputablesEur));
+  }
+  if (est.dividendExemptionAppliedEur > 0) {
+    pkv("Exención foral de dividendos (máx. 1.500 €)", fmtEur(-est.dividendExemptionAppliedEur), { tone: POS });
+  }
+  pkv("Saldo de rendimientos del capital mobiliario", fmtEur(est.saldoRcmEur));
   if (est.lossCarryForwardEur > 0) {
-    kv("Pérdida pendiente de compensar (4 ejercicios siguientes)", fmt(est.lossCarryForwardEur));
+    pkv("Saldo negativo pendiente (4 ejercicios, art. 66)", fmtEur(est.lossCarryForwardEur));
   }
-  kv("Base liquidable del ahorro estimada", fmt(est.baseAhorroEur), true);
-  kv("Cuota íntegra estimada", fmt(est.cuotaIntegraEur), true);
-  kv("Deducción doble imposición internacional (casilla 0588)", fmt(-est.ddiCreditEur));
-  kv("Retenciones ya practicadas en destino", fmt(-est.withholdingDestinoEur));
-  kv(
+  pkv("Base liquidable del ahorro estimada", fmtEur(est.baseAhorroEur), { bold: true });
+  pkv("Cuota íntegra estimada", fmtEur(est.cuotaIntegraEur), { bold: true });
+  if (est.ddiCreditEur > 0) {
+    pkv("Deducción doble imposición internacional (topada a cuota)", fmtEur(-est.ddiCreditEur));
+  }
+  if (est.withholdingDestinoEur > 0) {
+    pkv("Retenciones ya practicadas en destino", fmtEur(-est.withholdingDestinoEur));
+  }
+  // Resultado destacado en banda de acento suave.
+  room(30);
+  fill(doc, ACCENT_SOFT);
+  doc.roundedRect(M, cur.y - 11, CONTENT_W, 24, 4, 4, "F");
+  fill(doc, ACCENT);
+  doc.rect(M, cur.y - 11, 3, 24, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  text(doc, INK);
+  doc.text(
     est.resultadoEstimadoEur >= 0 ? "Resultado estimado (a ingresar)" : "Resultado estimado (a devolver)",
-    fmt(est.resultadoEstimadoEur),
-    true,
+    M + 12,
+    cur.y + 4,
   );
-  ensureRoom(24);
-  doc.setTextColor(90);
-  doc.setFontSize(8);
-  doc.text(
-    "Estimación orientativa de la base del ahorro aislada: no incluye base general, mínimos personales,",
-    L,
-    y,
-  );
-  y += 10;
-  doc.text(
-    "otras deducciones ni saldos negativos de ejercicios anteriores. El cálculo vinculante es el del programa de renta foral.",
-    L,
-    y,
-  );
-  doc.setTextColor(0);
-  doc.setFontSize(9);
-  y += 14;
+  doc.text(fmtEur(est.resultadoEstimadoEur), RIGHT - 10, cur.y + 4, { align: "right" });
+  cur.y += 32;
 
-  // ── 3. Ganancias y pérdidas por activo ──────────────────────────────────
-  sectionTitle("3. Ganancias y pérdidas patrimoniales por activo");
+  // ── 4 · Ganancias y pérdidas por activo ───────────────────────────────────
+  sectionTitle(cur, 4, "Ganancias y pérdidas patrimoniales por activo");
   const salesGroups = groupSalesByAsset(input.report.sales);
   if (salesGroups.length === 0) {
-    kv("Sin transmisiones en el ejercicio", "—");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    text(doc, MUTED);
+    doc.text("Sin transmisiones en el ejercicio.", M, cur.y);
+    text(doc, INK);
+    cur.y += 20;
   } else {
-    const cols: { label: string; x: number }[] = [
-      { label: "Ops.", x: 250 },
-      { label: "Transmisión", x: 325 },
-      { label: "Coste adq.", x: 400 },
-      { label: "Comisiones", x: 465 },
-      { label: "Computable", x: R },
+    const cols: Col[] = [
+      { label: "Activo", x: M },
+      { label: "Ops.", x: M + 238, align: "right" },
+      { label: "Transmisión", x: M + 312, align: "right" },
+      { label: "Coste adq.", x: M + 382, align: "right" },
+      { label: "Comis.", x: M + 430, align: "right" },
+      { label: "Computable", x: RIGHT, align: "right" },
     ];
-    const header = () => {
-      ensureRoom(16);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("Activo", L, y);
-      for (const c of cols) doc.text(c.label, c.x, y, { align: "right" });
-      y += 5;
-      doc.setDrawColor(180);
-      doc.line(L, y, R, y);
-      y += 10;
+    tableHead(cur, cols);
+    salesGroups.forEach((g, i) => {
+      const rowH = 26;
+      room(rowH + 6, (c) => tableHead(c, cols));
+      zebra(cur, i, rowH);
       doc.setFont("helvetica", "normal");
-    };
-    header();
-    for (const g of salesGroups) {
-      if (y + 24 > PAGE_BOTTOM) {
-        doc.addPage();
-        y = 40;
-        header();
-      }
       doc.setFontSize(8);
-      doc.text(truncate(g.label, 42), L, y);
-      doc.text(String(g.ops), cols[0].x, y, { align: "right" });
-      doc.text(fmt(g.proceedsEur), cols[1].x, y, { align: "right" });
-      doc.text(fmt(g.costBasisEur), cols[2].x, y, { align: "right" });
-      doc.text(fmt(g.feesEur), cols[3].x, y, { align: "right" });
+      doc.text(truncate(g.label, 32), M, cur.y);
+      doc.text(String(g.ops), cols[1].x, cur.y, { align: "right" });
+      doc.text(fmtEur(g.proceedsEur), cols[2].x, cur.y, { align: "right" });
+      doc.text(fmtEur(g.costBasisEur), cols[3].x, cur.y, { align: "right" });
+      doc.text(fmtEur(g.feesEur), cols[4].x, cur.y, { align: "right" });
       doc.setFont("helvetica", "bold");
-      doc.text(fmt(g.computableGainLossEur), cols[4].x, y, { align: "right" });
+      text(doc, toneFor(g.computableGainLossEur));
+      doc.text(fmtEur(g.computableGainLossEur), RIGHT, cur.y, { align: "right" });
+      text(doc, INK);
+      cur.y += 10;
       doc.setFont("helvetica", "normal");
-      y += 10;
-      doc.setTextColor(90);
-      doc.setFontSize(7);
+      doc.setFontSize(6.5);
+      text(doc, FAINT);
       const detail = [
         g.isin ? `ISIN ${g.isin}` : null,
         `cantidad ${g.quantity.toLocaleString("es-ES", { maximumFractionDigits: 8 })}`,
         g.nonComputableLossEur !== 0
-          ? `pérdida no computable art. 33.5: ${fmt(g.nonComputableLossEur)} (G/P bruta ${fmt(g.rawGainLossEur)})`
+          ? `pérdida aplazada art. 43: ${fmtEur(g.nonComputableLossEur)} (G/P bruta ${fmtEur(g.rawGainLossEur)})`
           : null,
       ]
         .filter(Boolean)
         .join("  ·  ");
-      doc.text(detail, L + 8, y);
-      doc.setTextColor(0);
-      doc.setFontSize(8);
-      y += 12;
-    }
-    ensureRoom(16);
-    doc.setDrawColor(180);
-    doc.line(L, y - 6, R, y - 6);
+      doc.text(detail, M + 8, cur.y);
+      text(doc, INK);
+      cur.y += 16;
+    });
+    room(20);
+    cur.y += 4;
+    totalRule(cur);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.text("Total", L, y + 4);
-    doc.text(fmt(t.proceedsEur), cols[1].x, y + 4, { align: "right" });
-    doc.text(fmt(t.costBasisEur), cols[2].x, y + 4, { align: "right" });
-    doc.text(fmt(t.feesEur), cols[3].x, y + 4, { align: "right" });
-    doc.text(fmt(t.netComputableEur), cols[4].x, y + 4, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    y += 18;
+    doc.text("Total", M, cur.y);
+    doc.text(fmtEur(t.proceedsEur), M + 312, cur.y, { align: "right" });
+    doc.text(fmtEur(t.costBasisEur), M + 382, cur.y, { align: "right" });
+    doc.text(fmtEur(t.feesEur), M + 430, cur.y, { align: "right" });
+    text(doc, toneFor(t.netComputableEur));
+    doc.text(fmtEur(t.netComputableEur), RIGHT, cur.y, { align: "right" });
+    text(doc, INK);
+    cur.y += 24;
+
+    if (salesGroups.length >= 2) {
+      room(40 + salesGroups.length * 17);
+      kicker(doc, "Resultado computable por activo", M, cur.y);
+      cur.y += 14;
+      hBars(
+        cur,
+        salesGroups.map((g) => ({ label: g.label, value: g.computableGainLossEur })),
+        { labelW: 150 },
+      );
+      cur.y += 8;
+    }
   }
 
-  // ── 4. Dividendos por activo ────────────────────────────────────────────
-  sectionTitle("4. Dividendos por activo");
+  // ── 5 · Dividendos por activo ─────────────────────────────────────────────
+  sectionTitle(cur, 5, "Dividendos por activo");
   const dividendGroups = groupDividendsByAsset(input.report.dividends);
   if (dividendGroups.length === 0) {
-    kv("Sin dividendos en el ejercicio", "—");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    text(doc, MUTED);
+    doc.text("Sin dividendos en el ejercicio.", M, cur.y);
+    text(doc, INK);
+    cur.y += 20;
   } else {
-    const cols: { label: string; x: number }[] = [
-      { label: "País", x: 250 },
-      { label: "Pagos", x: 285 },
-      { label: "Bruto", x: 355 },
-      { label: "Ret. origen", x: 425 },
-      { label: "Ret. destino", x: 492 },
-      { label: "Neto", x: R },
+    const cols: Col[] = [
+      { label: "Activo", x: M },
+      { label: "País", x: M + 220, align: "right" },
+      { label: "Pagos", x: M + 256, align: "right" },
+      { label: "Bruto", x: M + 320, align: "right" },
+      { label: "R. origen", x: M + 384, align: "right" },
+      { label: "R. destino", x: M + 444, align: "right" },
+      { label: "Neto", x: RIGHT, align: "right" },
     ];
-    const header = () => {
-      ensureRoom(16);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("Activo", L, y);
-      for (const c of cols) doc.text(c.label, c.x, y, { align: "right" });
-      y += 5;
-      doc.setDrawColor(180);
-      doc.line(L, y, R, y);
-      y += 10;
+    tableHead(cur, cols);
+    dividendGroups.forEach((g, i) => {
+      room(20, (c) => tableHead(c, cols));
+      zebra(cur, i, 15);
       doc.setFont("helvetica", "normal");
-    };
-    header();
-    for (const g of dividendGroups) {
-      if (y + 14 > PAGE_BOTTOM) {
-        doc.addPage();
-        y = 40;
-        header();
-      }
       doc.setFontSize(8);
-      doc.text(truncate(g.label, 42), L, y);
-      doc.text(g.country ?? "—", cols[0].x, y, { align: "right" });
-      doc.text(String(g.payments), cols[1].x, y, { align: "right" });
-      doc.text(fmt(g.grossEur), cols[2].x, y, { align: "right" });
-      doc.text(fmt(g.withholdingOrigenEur), cols[3].x, y, { align: "right" });
-      doc.text(fmt(g.withholdingDestinoEur), cols[4].x, y, { align: "right" });
-      doc.text(fmt(g.netEur), cols[5].x, y, { align: "right" });
-      y += 12;
-    }
-    ensureRoom(16);
-    doc.setDrawColor(180);
-    doc.line(L, y - 6, R, y - 6);
+      doc.text(truncate(g.label, 30), M, cur.y);
+      doc.text(g.country ?? "—", cols[1].x, cur.y, { align: "right" });
+      doc.text(String(g.payments), cols[2].x, cur.y, { align: "right" });
+      doc.text(fmtEur(g.grossEur), cols[3].x, cur.y, { align: "right" });
+      doc.text(fmtEur(g.withholdingOrigenEur), cols[4].x, cur.y, { align: "right" });
+      doc.text(fmtEur(g.withholdingDestinoEur), cols[5].x, cur.y, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      doc.text(fmtEur(g.netEur), RIGHT, cur.y, { align: "right" });
+      cur.y += 15;
+    });
+    room(20);
+    cur.y += 4;
+    totalRule(cur);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.text("Total", L, y + 4);
-    doc.text(fmt(t.dividendsGrossEur), cols[2].x, y + 4, { align: "right" });
-    doc.text(fmt(t.withholdingOrigenTotalEur), cols[3].x, y + 4, { align: "right" });
-    doc.text(fmt(t.withholdingDestinoTotalEur), cols[4].x, y + 4, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    y += 18;
+    doc.text("Total", M, cur.y);
+    doc.text(fmtEur(t.dividendsGrossEur), M + 320, cur.y, { align: "right" });
+    doc.text(fmtEur(t.withholdingOrigenTotalEur), M + 384, cur.y, { align: "right" });
+    doc.text(fmtEur(t.withholdingDestinoTotalEur), M + 444, cur.y, { align: "right" });
+    cur.y += 24;
   }
 
-  // ── 5. Casillas Modelo 100 ──────────────────────────────────────────────
-  sectionTitle("5. Casillas — Modelo 100 foral");
-  kv("0326 — Ganancias patrimoniales (transmisión)", fmt(t.realizedGainsEur));
-  kv("0340 — Pérdidas computables", fmt(Math.abs(t.realizedLossesComputableEur)));
-  kv("0343 — Saldo neto de ganancias y pérdidas", fmt(t.netComputableEur));
-  kv("0027 — Rendimientos del capital mobiliario (dividendos brutos)", fmt(t.dividendsGrossEur));
-  kv(
-    "0029 — Retenciones e ingresos a cuenta",
-    fmt(t.withholdingOrigenTotalEur + t.withholdingDestinoTotalEur),
+  // ── 6 · Casillas ──────────────────────────────────────────────────────────
+  sectionTitle(
+    cur,
+    6,
+    "Casillas — numeración orientativa (modelo estatal)",
+    "El modelo foral usa numeración propia: estas casillas sirven de guía de qué importe va en cada concepto.",
   );
-  kv("0588 — Deducción por doble imposición internacional", fmt(est.ddiCreditEur));
+  const casillas: { num: string; label: string; value: number }[] = [
+    { num: "0326", label: "Ganancias patrimoniales (transmisión)", value: t.realizedGainsEur },
+    { num: "0340", label: "Pérdidas computables", value: Math.abs(t.realizedLossesComputableEur) },
+    { num: "0343", label: "Saldo neto de ganancias y pérdidas", value: t.netComputableEur },
+    { num: "0027", label: "Rendimientos del capital mobiliario", value: t.dividendsGrossEur },
+    {
+      num: "0029",
+      label: "Retenciones e ingresos a cuenta",
+      value: t.withholdingOrigenTotalEur + t.withholdingDestinoTotalEur,
+    },
+    { num: "0588", label: "Deducción doble imposición internacional", value: est.ddiCreditEur },
+  ];
+  const boxW = (CONTENT_W - 10) / 2;
+  const boxH = 36;
+  for (let i = 0; i < casillas.length; i += 2) {
+    room(boxH + 10);
+    for (let j = 0; j < 2 && i + j < casillas.length; j++) {
+      const c = casillas[i + j];
+      const x = M + j * (boxW + 10);
+      stroke(doc, HAIR);
+      fill(doc, PANEL);
+      doc.setLineWidth(0.75);
+      doc.roundedRect(x, cur.y, boxW, boxH, 5, 5, "FD");
+      fill(doc, ACCENT);
+      doc.roundedRect(x + 10, cur.y + 10, 32, 16, 3, 3, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      text(doc, WHITE);
+      doc.text(c.num, x + 26, cur.y + 21, { align: "center" });
+      doc.setFontSize(7);
+      text(doc, MUTED);
+      doc.setFont("helvetica", "normal");
+      doc.text(truncate(c.label, 38), x + 50, cur.y + 16);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      text(doc, INK);
+      doc.text(fmtEur(c.value), x + boxW - 12, cur.y + 27, { align: "right" });
+    }
+    cur.y += boxH + 10;
+  }
+  cur.y += 10;
 
-  // ── 6. Modelos informativos ─────────────────────────────────────────────
-  sectionTitle("6. Modelos informativos (720 / 721 / D-6)");
+  // ── 7 · Modelos informativos ──────────────────────────────────────────────
+  sectionTitle(cur, 7, "Modelos informativos (720 · 721 · D-6)");
   const renderBlocks = (label: string, blocks: InformationalModelsStatus["m720"]["blocks"]) => {
-    ensureRoom(14);
+    room(18);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(label, L, y);
-    doc.setFont("helvetica", "normal");
-    y += 12;
+    doc.setFontSize(8.5);
+    text(doc, INK);
+    doc.text(label, M, cur.y);
+    cur.y += 13;
     if (blocks.length === 0) {
-      doc.setTextColor(90);
-      doc.text("Sin bloques declarables", L + 8, y);
-      doc.setTextColor(0);
-      y += 12;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      text(doc, FAINT);
+      doc.text("Sin bloques declarables", M + 10, cur.y);
+      text(doc, INK);
+      cur.y += 14;
       return;
     }
     for (const b of blocks) {
-      ensureRoom(12);
+      room(14);
       const flag = b.hasUnvalued ? "  [SIN VALORAR — incompleto]" : b.hasStale ? "  [valoración desfasada]" : "";
-      doc.setFontSize(8);
-      doc.text(`${b.country}  ·  ${b.type}  ·  ${b.status}${flag}`, L + 8, y);
-      doc.text(fmt(b.valueEur), R, y, { align: "right" });
-      y += 11;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      text(doc, b.hasUnvalued ? NEG : MUTED);
+      doc.text(`${b.country}  ·  ${b.type}  ·  ${b.status}${flag}`, M + 10, cur.y);
+      text(doc, INK);
+      doc.setFont("helvetica", "bold");
+      doc.text(fmtEur(b.valueEur), RIGHT, cur.y, { align: "right" });
+      cur.y += 12;
     }
-    y += 4;
+    cur.y += 6;
   };
   renderBlocks("Modelo 720 — bienes y derechos en el extranjero", input.models.m720.blocks);
   renderBlocks("Modelo 721 — monedas virtuales en el extranjero", input.models.m721.blocks);
-  renderBlocks("D-6 — valores negociables depositados en el extranjero", input.models.d6.blocks);
+  renderBlocks("Modelo D-6 — valores negociables depositados en el extranjero", input.models.d6.blocks);
 
-  // ── Pie ─────────────────────────────────────────────────────────────────
-  ensureRoom(20);
-  y += 6;
-  doc.setTextColor(120);
+  // Nota final.
+  room(20);
+  cur.y += 4;
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
+  text(doc, FAINT);
   doc.text(
-    "Documento generado por Finances Panel. Estimaciones orientativas según normativa foral armonizada; no constituye asesoramiento fiscal.",
-    L,
-    y,
+    "Documento generado por Finances Panel. Estimaciones orientativas según normativa foral; no constituye asesoramiento fiscal.",
+    M,
+    cur.y,
   );
-  doc.setTextColor(0);
+  text(doc, INK);
 
+  // Pequeño donut decorativo-informativo en la cabecera de página 1 si hay
+  // composición de resultado (ganancias vs pérdidas) — lo dibujamos al final
+  // para conocer los totales, sobre coordenadas fijas de la banda.
+  if (t.realizedGainsEur > 0 && t.realizedLossesComputableEur < 0) {
+    doc.setPage(1);
+    donut(doc, RIGHT - 24, 84, 11, 7, [
+      { value: t.realizedGainsEur, color: ACCENT },
+      { value: Math.abs(t.realizedLossesComputableEur), color: [148, 163, 184] },
+    ]);
+  }
+
+  finishFooters(doc, `Finances Panel · Informe fiscal IRPF ${input.year} · Bizkaia`);
   const out = doc.output("arraybuffer");
   return new Uint8Array(out);
 }

@@ -6,7 +6,7 @@ import { Button } from "@/src/components/ui/Button";
 import { CreateAccountModal } from "./CreateAccountModal";
 
 export function AccountsNewButton({
-  label = "New Account",
+  label = "Nueva cuenta",
   size = "md",
 }: {
   label?: string;

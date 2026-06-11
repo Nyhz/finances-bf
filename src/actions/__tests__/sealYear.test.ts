@@ -104,7 +104,7 @@ describe("sealYear unvalued-balance gate", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe("conflict");
-      expect(res.error.message).toMatch(/unvalued/);
+      expect(res.error.message).toMatch(/sin valorar/);
     }
     expect(db.select().from(taxYearSnapshots).all()).toHaveLength(0);
   });

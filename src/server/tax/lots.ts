@@ -4,11 +4,16 @@ import type { db, DB } from "../../db/client";
 import { roundEur } from "../../lib/money";
 import {
   assetTransactions,
+  assets,
   taxLotConsumptions,
   taxLots,
   taxWashSaleAdjustments,
 } from "../../db/schema";
-import { checkSaleAtLoss } from "./washSale";
+import {
+  addCalendarMonths,
+  allocateLargestRemainder,
+  washSaleWindowForAssetClass,
+} from "./washSale";
 
 // Accepts either a top-level DB handle or a Drizzle transaction handle.
 // Using the parameter type of the transaction callback avoids importing the
@@ -18,13 +23,24 @@ type DbOrTx = DB | Tx;
 
 type MutableLot = {
   id: string;
-  remainingQty: number;
-  unitCostEur: number;
-  deferredLossAddedEur: number;
-  acquiredAt: number;
   originTransactionId: string;
   accountId: string;
+  acquiredAt: number;
+  originalQty: number;
+  remainingQty: number;
+  // Exact remaining basis (gross + fees + integrated deferred losses),
+  // unrounded. Consumptions subtract their ROUNDED cost from it, so every
+  // half-cent of rounding stays in the lot and the final full drain absorbs
+  // it: the consumed basis always reconciles with what was actually paid.
+  remainingCostEur: number;
+  // The deferred-loss portion of remainingCostEur, tracked for persistence
+  // and UI; consumed proportionally alongside the rest of the basis.
+  deferredLossAddedEur: number;
 };
+
+type PendingDeferral = { saleTransactionId: string; amountEur: number };
+
+const EPS = 1e-9;
 
 export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
   // 1. Wipe previous derivations for this asset.
@@ -40,7 +56,12 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
   }
   tx.delete(taxLots).where(eq(taxLots.assetId, assetId)).run();
 
-  // 2. Replay in chronological order.
+  const asset = tx.select().from(assets).where(eq(assets.id, assetId)).get();
+  const window = washSaleWindowForAssetClass(asset?.assetClassTax ?? null);
+
+  // 2. Replay in chronological order. Wash-sale detection runs INLINE so a
+  //    deferred loss lands on the absorbing lot before any later sell consumes
+  //    it — the recovery the norm mandates ("a medida que se transmitan").
   const rows = tx
     .select()
     .from(assetTransactions)
@@ -53,9 +74,10 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
     .all();
 
   const open: MutableLot[] = [];
-  // Collect sell P&L data for wash-sale second pass (must run after all lots are created).
-  type SaleRecord = { row: (typeof rows)[number]; consumedCostEur: number };
-  const saleRecords: SaleRecord[] = [];
+  const lotByOriginTxn = new Map<string, MutableLot>();
+  // Deferred losses assigned to absorbing buys that happen AFTER the loss
+  // sale: stashed by buy-transaction id, applied when that lot is created.
+  const pendingDeferrals = new Map<string, PendingDeferral[]>();
 
   for (const row of rows) {
     if (row.transactionType === "buy") {
@@ -65,8 +87,14 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
           `tax-lots: buy ${row.id} for asset ${assetId} has non-positive quantity ${row.quantity} — corrupt row, fix or delete it`,
         );
       }
-      const unitCostEur = roundEur((row.tradeGrossAmountEur + row.feesAmountEur) / row.quantity);
       const lotId = ulid();
+      // Deferred losses from earlier loss-sales that this buy absorbs.
+      let deferred = 0;
+      const pending = pendingDeferrals.get(row.id);
+      if (pending) {
+        for (const p of pending) deferred += p.amountEur;
+        pendingDeferrals.delete(row.id);
+      }
       tx.insert(taxLots).values({
         id: lotId,
         assetId,
@@ -75,44 +103,64 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
         acquiredAt: row.tradedAt,
         originalQty: row.quantity,
         remainingQty: row.quantity,
-        unitCostEur,
-        deferredLossAddedEur: 0,
+        grossCostEur: row.tradeGrossAmountEur,
+        feesEur: row.feesAmountEur,
+        deferredLossAddedEur: deferred,
       }).run();
-      open.push({
+      // Adjustment rows reference the lot — insert AFTER it exists.
+      if (pending) {
+        for (const p of pending) {
+          tx.insert(taxWashSaleAdjustments).values({
+            id: ulid(),
+            saleTransactionId: p.saleTransactionId,
+            absorbingLotId: lotId,
+            disallowedLossEur: p.amountEur,
+            windowDays: window.daysLabel,
+          }).run();
+        }
+      }
+      const lot: MutableLot = {
         id: lotId,
-        remainingQty: row.quantity,
-        unitCostEur,
-        deferredLossAddedEur: 0,
-        acquiredAt: row.tradedAt,
         originTransactionId: row.id,
         accountId: row.accountId,
-      });
+        acquiredAt: row.tradedAt,
+        originalQty: row.quantity,
+        remainingQty: row.quantity,
+        remainingCostEur: row.tradeGrossAmountEur + row.feesAmountEur + deferred,
+        deferredLossAddedEur: deferred,
+      };
+      open.push(lot);
+      lotByOriginTxn.set(row.id, lot);
       continue;
     }
 
     if (row.transactionType !== "sell") continue;
 
     let remaining = row.quantity;
-    const consumptions: { lotId: string; qty: number; cost: number }[] = [];
+    const consumptions: { lot: MutableLot; qty: number; cost: number }[] = [];
 
-    while (remaining > 1e-9 && open.length > 0) {
+    while (remaining > EPS && open.length > 0) {
       const lot = open[0];
-      const take = Math.min(lot.remainingQty, remaining);
-      const unitCostWithDeferred =
-        lot.unitCostEur +
-        (lot.remainingQty > 0 ? lot.deferredLossAddedEur / lot.remainingQty : 0);
-      const cost = roundEur(take * unitCostWithDeferred);
-      consumptions.push({ lotId: lot.id, qty: take, cost });
-      // Consume a proportional share of the deferred credit too.
-      const consumedDeferredShare =
-        lot.remainingQty > 0 ? lot.deferredLossAddedEur * (take / lot.remainingQty) : 0;
-      lot.remainingQty -= take;
-      lot.deferredLossAddedEur = Math.max(0, lot.deferredLossAddedEur - consumedDeferredShare);
+      const fullDrain = remaining >= lot.remainingQty - EPS;
+      const take = fullDrain ? lot.remainingQty : remaining;
+      const share = take / lot.remainingQty;
+      // Round once per consumption; subtract the ROUNDED cost from the exact
+      // remainder so the lot carries the delta and the drain reconciles.
+      const cost = fullDrain
+        ? roundEur(lot.remainingCostEur)
+        : roundEur(lot.remainingCostEur * share);
+      const deferredConsumed = fullDrain
+        ? lot.deferredLossAddedEur
+        : lot.deferredLossAddedEur * share;
+      consumptions.push({ lot, qty: take, cost });
+      lot.remainingQty = fullDrain ? 0 : lot.remainingQty - take;
+      lot.remainingCostEur = fullDrain ? 0 : lot.remainingCostEur - cost;
+      lot.deferredLossAddedEur = Math.max(0, lot.deferredLossAddedEur - deferredConsumed);
       remaining -= take;
-      if (lot.remainingQty <= 1e-9) open.shift();
+      if (lot.remainingQty <= EPS) open.shift();
     }
 
-    if (remaining > 1e-9) {
+    if (remaining > EPS) {
       throw new Error(
         `tax-lots: sell ${row.id} oversells asset ${assetId} by ${remaining} units — missing buy trades?`,
       );
@@ -122,28 +170,74 @@ export function recomputeLotsForAsset(tx: DbOrTx, assetId: string): void {
       tx.insert(taxLotConsumptions).values({
         id: ulid(),
         saleTransactionId: row.id,
-        lotId: c.lotId,
+        lotId: c.lot.id,
         qtyConsumed: c.qty,
         costBasisEur: c.cost,
       }).run();
-      // Persist updated remainingQty for each touched lot.
-      const lot = open.find((l) => l.id === c.lotId);
-      if (lot) {
-        tx.update(taxLots).set({
-          remainingQty: lot.remainingQty,
-          deferredLossAddedEur: lot.deferredLossAddedEur,
-        }).where(eq(taxLots.id, lot.id)).run();
-      } else {
-        tx.update(taxLots).set({ remainingQty: 0, deferredLossAddedEur: 0 }).where(eq(taxLots.id, c.lotId)).run();
-      }
+      tx.update(taxLots).set({
+        remainingQty: c.lot.remainingQty,
+        deferredLossAddedEur: roundEur(c.lot.deferredLossAddedEur),
+      }).where(eq(taxLots.id, c.lot.id)).run();
     }
 
-    saleRecords.push({ row, consumedCostEur: consumptions.reduce((s, c) => s + c.cost, 0) });
-  }
+    // 3. Norma antiaplicación (art. 43.g/h NF 13/2013): a loss is deferred if
+    //    homogeneous values were acquired within the calendar window around
+    //    the sale. Past buys absorb on their SURVIVING units (units this very
+    //    sale drained were definitively transmitted); future buys absorb on
+    //    their full quantity once their lot is created.
+    const consumedCostEur = consumptions.reduce((s, c) => s + c.cost, 0);
+    const loss = row.tradeGrossAmountEur - consumedCostEur - row.feesAmountEur;
+    if (loss >= 0) continue;
 
-  // 3. Second pass: wash-sale detection (runs after all lots are committed so
-  //    future repurchase lots are visible in the DB).
-  for (const { row, consumedCostEur } of saleRecords) {
-    checkSaleAtLoss(tx, row, row.tradeGrossAmountEur, consumedCostEur, row.feesAmountEur);
+    const windowStart = addCalendarMonths(row.tradedAt, -window.months);
+    const windowEnd = addCalendarMonths(row.tradedAt, window.months);
+
+    type Absorber = { qty: number; lot: MutableLot | null; buyTxnId: string };
+    const absorbers: Absorber[] = [];
+    for (const buy of rows) {
+      if (buy.transactionType !== "buy") continue;
+      if (buy.tradedAt < windowStart || buy.tradedAt > windowEnd) continue;
+      if (buy.tradedAt <= row.tradedAt) {
+        const lot = lotByOriginTxn.get(buy.id);
+        if (lot && lot.remainingQty > EPS) {
+          absorbers.push({ qty: lot.remainingQty, lot, buyTxnId: buy.id });
+        }
+      } else {
+        absorbers.push({ qty: buy.quantity, lot: null, buyTxnId: buy.id });
+      }
+    }
+    if (absorbers.length === 0) continue;
+
+    const soldQty = row.quantity;
+    const acquiredQty = absorbers.reduce((s, a) => s + a.qty, 0);
+    const absorbingQty = Math.min(soldQty, acquiredQty);
+    if (absorbingQty <= 0) continue;
+
+    const totalDisallowed = roundEur(Math.abs(loss) * (absorbingQty / soldQty));
+    const shares = allocateLargestRemainder(totalDisallowed, absorbers.map((a) => a.qty));
+
+    for (let i = 0; i < absorbers.length; i++) {
+      const share = shares[i];
+      if (share <= 0) continue;
+      const a = absorbers[i];
+      if (a.lot) {
+        tx.insert(taxWashSaleAdjustments).values({
+          id: ulid(),
+          saleTransactionId: row.id,
+          absorbingLotId: a.lot.id,
+          disallowedLossEur: share,
+          windowDays: window.daysLabel,
+        }).run();
+        a.lot.deferredLossAddedEur += share;
+        a.lot.remainingCostEur += share;
+        tx.update(taxLots).set({
+          deferredLossAddedEur: roundEur(a.lot.deferredLossAddedEur),
+        }).where(eq(taxLots.id, a.lot.id)).run();
+      } else {
+        const list = pendingDeferrals.get(a.buyTxnId) ?? [];
+        list.push({ saleTransactionId: row.id, amountEur: share });
+        pendingDeferrals.set(a.buyTxnId, list);
+      }
+    }
   }
 }

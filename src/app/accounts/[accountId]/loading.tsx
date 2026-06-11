@@ -13,17 +13,17 @@ export default function Loading() {
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-24 w-full" />
       </section>
-      <Card title="Positions">
+      <Card title="Posiciones">
         <div className="flex flex-col gap-2">
           <Skeleton className="h-6 w-full" />
           <Skeleton className="h-6 w-full" />
           <Skeleton className="h-6 w-5/6" />
         </div>
       </Card>
-      <Card title="Performance">
+      <Card title="Evolución">
         <Skeleton className="h-64 w-full" />
       </Card>
-      <Card title="Ledger">
+      <Card title="Movimientos">
         <div className="flex flex-col gap-2">
           <Skeleton className="h-6 w-full" />
           <Skeleton className="h-6 w-full" />

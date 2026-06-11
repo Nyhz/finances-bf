@@ -5,8 +5,7 @@ import { ulid } from "ulid";
 import { db as defaultDb, type DB } from "../db/client";
 import { accounts, assets, assetTransactions, auditEvents, accountCashMovements } from "../db/schema";
 import { rebuildAfterTradeMutation } from "../server/mutations";
-import { FxDeviationError, resolveFxForDate } from "./_fx";
-import { FxUnavailableError } from "../lib/fx";
+import { FxDeviationError, FxManualRequiredError, requireManualFx } from "./_fx";
 import { roundEur } from "../lib/money";
 import { createDividendSchema } from "./createDividend.schema";
 import { z } from "zod";
@@ -28,7 +27,7 @@ export async function createDividend(
       ok: false,
       error: {
         code: "validation",
-        message: "Invalid input",
+        message: "Datos no válidos",
         fieldErrors: flat.fieldErrors as Record<string, string[]>,
       },
     };
@@ -43,9 +42,9 @@ export async function createDividend(
       if (!asset) throw new Error("asset not found");
 
       const tradedAt = new Date(`${data.tradeDate}T12:00:00.000Z`).getTime();
-      // Audit T1: never default a foreign dividend to rate 1 — resolve from
-      // fx_rates (or the explicit user rate) and fail loudly when neither exists.
-      const fx = resolveFxForDate(tx, data.currency, data.tradeDate, data.fxRateToEur, {
+      // Audit T1: never default a foreign dividend to rate 1. The broker's
+      // EUR→CCY rate is always typed by hand; daily fx_rates only guard.
+      const fx = requireManualFx(tx, data.currency, data.tradeDate, data.fxEurToCcy, {
         allowDeviation: data.allowFxDeviation,
       });
       const fxRate = fx.rate;
@@ -126,17 +125,13 @@ export async function createDividend(
     revalidateTradeMutation(data.accountId);
     return { ok: true, data: result };
   } catch (err) {
-    if (err instanceof FxUnavailableError) {
+    if (err instanceof FxManualRequiredError) {
       return {
         ok: false,
         error: {
           code: "validation",
           message: err.message,
-          fieldErrors: {
-            fxRateToEur: [
-              `No stored FX rate for ${err.currency} on or before ${err.isoDate} — enter the rate manually.`,
-            ],
-          },
+          fieldErrors: { fxEurToCcy: [err.message] },
         },
       };
     }
@@ -146,20 +141,34 @@ export async function createDividend(
         error: {
           code: "fx_deviation",
           message: err.message,
-          fieldErrors: { fxRateToEur: [err.message] },
+          fieldErrors: { fxEurToCcy: [err.message] },
         },
       };
     }
     const message = err instanceof Error ? err.message : "unknown";
     if (message.startsWith("withholding exceeds gross")) {
+      // The thrown message is an internal English sentinel; rebuild the
+      // user-facing sentence in Spanish from its parts.
+      const m = message.match(
+        /^withholding exceeds gross: net would be (\S+) EUR \(gross (\S+) EUR\)$/,
+      );
+      const friendly = m
+        ? `La retención supera el dividendo bruto: el neto sería ${m[1]} EUR (bruto ${m[2]} EUR)`
+        : "La retención supera el dividendo bruto";
       return {
         ok: false,
         error: {
           code: "validation",
-          message,
-          fieldErrors: { withholdingDestinoEur: [message] },
+          message: friendly,
+          fieldErrors: { withholdingDestinoEur: [friendly] },
         },
       };
+    }
+    if (message.startsWith("account not found") || message.startsWith("asset not found")) {
+      const friendly = message.startsWith("account not found")
+        ? "cuenta no encontrada"
+        : "activo no encontrado";
+      return { ok: false, error: { code: "not_found", message: friendly } };
     }
     return { ok: false, error: { code: "db", message } };
   }

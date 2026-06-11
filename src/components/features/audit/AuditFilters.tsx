@@ -99,13 +99,13 @@ export function AuditFilters() {
       )}
     >
       <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-        Entity type
+        Tipo de entidad
         <select
           value={values.entityType}
           onChange={(e) => update("entityType", e.target.value)}
           className={inputClass}
         >
-          <option value="">All</option>
+          <option value="">Todos</option>
           {ENTITY_TYPES.map((t) => (
             <option key={t} value={t}>
               {t}
@@ -115,24 +115,24 @@ export function AuditFilters() {
       </label>
 
       <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-        Entity id
+        ID de entidad
         <input
           type="text"
           value={values.entityId}
           onChange={(e) => update("entityId", e.target.value)}
-          placeholder="e.g. acc_01H…"
+          placeholder="p. ej. acc_01H…"
           className={inputClass}
         />
       </label>
 
       <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-        Action
+        Acción
         <select
           value={values.action}
           onChange={(e) => update("action", e.target.value)}
           className={inputClass}
         >
-          <option value="">All</option>
+          <option value="">Todas</option>
           {ACTIONS.map((a) => (
             <option key={a} value={a}>
               {a}
@@ -142,18 +142,18 @@ export function AuditFilters() {
       </label>
 
       <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-        Source
+        Origen
         <input
           type="text"
           value={values.source}
           onChange={(e) => update("source", e.target.value)}
-          placeholder="e.g. ui, cron"
+          placeholder="p. ej. ui, cron"
           className={inputClass}
         />
       </label>
 
       <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-        From
+        Desde
         <input
           type="date"
           value={values.dateFrom}
@@ -163,7 +163,7 @@ export function AuditFilters() {
       </label>
 
       <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-        To
+        Hasta
         <input
           type="date"
           value={values.dateTo}
@@ -174,10 +174,10 @@ export function AuditFilters() {
 
       <div className="flex items-end gap-2 md:col-span-3 lg:col-span-6">
         <Button type="submit" size="sm" disabled={pending}>
-          Apply filters
+          Aplicar filtros
         </Button>
         <Button type="button" variant="secondary" size="sm" onClick={onReset} disabled={pending}>
-          Reset
+          Restablecer
         </Button>
       </div>
     </form>

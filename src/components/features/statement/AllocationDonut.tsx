@@ -2,7 +2,7 @@
 
 import { Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
-import { AssetTypeBadge } from "@/src/components/ui/AssetTypeBadge";
+import { AssetTypeBadge, assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
 
 export type AllocationSlice = {
   assetType: string;
@@ -36,12 +36,12 @@ export function AllocationDonut({
     if (!props.active || !p) return null;
     return (
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
-        <p className="text-xs text-muted-foreground">{p.assetType}</p>
+        <p className="text-xs text-muted-foreground">{assetTypeLabel(p.assetType)}</p>
         <p className="text-sm font-semibold text-foreground">
           <SensitiveValue>{formatMoney(p.valueEur)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
-          {(p.weight * 100).toFixed(1)}% of invested
+          {(p.weight * 100).toFixed(1)}% de lo invertido
         </p>
       </div>
     );

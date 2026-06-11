@@ -42,10 +42,10 @@ export function AccountsBarChart({ rows }: { rows: AccountBarRow[] }) {
       <div className="rounded-md border border-border/70 bg-card/95 px-3 py-2 shadow-sm">
         <p className="text-xs text-muted-foreground">{p.name}</p>
         <p className="text-sm font-semibold text-foreground">
-          Invested: <SensitiveValue>{formatMoney(p.investedEur)}</SensitiveValue>
+          Invertido: <SensitiveValue>{formatMoney(p.investedEur)}</SensitiveValue>
         </p>
         <p className="text-sm font-semibold text-foreground">
-          Cash: <SensitiveValue>{formatMoney(p.cashEur)}</SensitiveValue>
+          Efectivo: <SensitiveValue>{formatMoney(p.cashEur)}</SensitiveValue>
         </p>
         <p className="text-xs text-muted-foreground">
           Total: <SensitiveValue>{formatMoney(p.investedEur + p.cashEur)}</SensitiveValue>
@@ -102,11 +102,11 @@ export function AccountsBarChart({ rows }: { rows: AccountBarRow[] }) {
       <div className="flex items-center gap-5 px-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-chart-1" aria-hidden />
-          Invested
+          Invertido
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-chart-2" aria-hidden />
-          Cash
+          Efectivo
         </span>
       </div>
     </div>

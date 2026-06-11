@@ -36,11 +36,11 @@ export function TransactionsNewButton({
         disabled={cashDisabled}
       >
         <Wallet className="h-4 w-4" />
-        New cash movement
+        Nuevo movimiento de efectivo
       </Button>
       <Button size="md" onClick={() => setTradeOpen(true)} disabled={tradeDisabled}>
         <Plus className="h-4 w-4" />
-        New transaction
+        Nueva transacción
       </Button>
       <CreateTransactionModal
         open={tradeOpen}

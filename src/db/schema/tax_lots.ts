@@ -20,7 +20,12 @@ export const taxLots = sqliteTable(
     acquiredAt: integer("acquired_at", { mode: "number" }).notNull(),
     originalQty: real("original_qty").notNull(),
     remainingQty: real("remaining_qty").notNull(),
-    unitCostEur: real("unit_cost_eur").notNull(),
+    // Acquisition cost stored SEPARATELY (gross vs fees) and as lot totals,
+    // never as a pre-rounded per-unit figure: rounding the unit cost to cents
+    // and multiplying back by quantity inflated the basis (e.g. +0.58 € on a
+    // 158-unit lot). Consumption math derives exact values from these totals.
+    grossCostEur: real("gross_cost_eur").notNull().default(0),
+    feesEur: real("fees_eur").notNull().default(0),
     deferredLossAddedEur: real("deferred_loss_added_eur").notNull().default(0),
     createdAt: createdAtCol(),
     updatedAt: updatedAtCol(),

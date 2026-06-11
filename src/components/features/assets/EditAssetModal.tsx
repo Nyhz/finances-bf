@@ -7,6 +7,17 @@ import { updateAsset } from "@/src/actions/updateAsset";
 import { ASSET_TYPES } from "@/src/actions/_constants";
 import type { Asset } from "@/src/db/schema";
 
+// Display-only labels — the submitted assetType values stay in English.
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  etf: "ETF",
+  stock: "Acción",
+  bond: "Bono",
+  crypto: "Cripto",
+  fund: "Fondo",
+  "cash-equivalent": "Equivalente de efectivo",
+  other: "Otro",
+};
+
 type FormState = {
   name: string;
   symbol: string;
@@ -86,7 +97,7 @@ export function EditAssetModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Edit asset"
+      title="Editar activo"
       description={asset.name}
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
@@ -99,7 +110,7 @@ export function EditAssetModal({
           </div>
         )}
 
-        <Field label="Name" errors={fieldErrors.name}>
+        <Field label="Nombre" errors={fieldErrors.name}>
           <input
             type="text"
             value={form.name}
@@ -110,7 +121,7 @@ export function EditAssetModal({
           />
         </Field>
 
-        <Field label="Symbol" errors={fieldErrors.symbol}>
+        <Field label="Símbolo" errors={fieldErrors.symbol}>
           <input
             type="text"
             value={form.symbol}
@@ -131,7 +142,7 @@ export function EditAssetModal({
           />
         </Field>
 
-        <Field label="Type" errors={fieldErrors.assetType}>
+        <Field label="Tipo" errors={fieldErrors.assetType}>
           <select
             value={form.assetType}
             onChange={(e) => update("assetType", e.target.value)}
@@ -139,13 +150,13 @@ export function EditAssetModal({
           >
             {ASSET_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {ASSET_TYPE_LABELS[t] ?? t}
               </option>
             ))}
           </select>
         </Field>
 
-        <Field label="Exchange" errors={fieldErrors.exchange}>
+        <Field label="Mercado" errors={fieldErrors.exchange}>
           <input
             type="text"
             value={form.exchange}
@@ -156,7 +167,7 @@ export function EditAssetModal({
         </Field>
 
         <Field
-          label="Provider symbol"
+          label="Símbolo del proveedor"
           errors={fieldErrors.providerSymbol}
         >
           <input
@@ -167,14 +178,14 @@ export function EditAssetModal({
             maxLength={64}
             placeholder={
               form.assetType === "crypto"
-                ? "CoinGecko coin id (e.g. binancecoin, ethereum)"
-                : "Yahoo ticker (e.g. AAPL, BTC-EUR)"
+                ? "Id de CoinGecko (p. ej. binancecoin, ethereum)"
+                : "Ticker de Yahoo (p. ej. AAPL, BTC-EUR)"
             }
           />
           <span className="text-xs text-muted-foreground">
             {form.assetType === "crypto"
-              ? "CoinGecko coin id used by the crypto price sync."
-              : "Yahoo Finance ticker used by the daily price sync."}
+              ? "Id de moneda de CoinGecko usado por la sincronización de precios cripto."
+              : "Ticker de Yahoo Finance usado por la sincronización diaria de precios."}
           </span>
         </Field>
 
@@ -184,7 +195,7 @@ export function EditAssetModal({
             checked={form.isActive}
             onChange={(e) => update("isActive", e.target.checked)}
           />
-          <span>Active</span>
+          <span>Activo</span>
         </label>
 
         <div className="flex items-center justify-end gap-2 pt-2">
@@ -194,10 +205,10 @@ export function EditAssetModal({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            Cancel
+            Cancelar
           </Button>
           <Button type="submit" disabled={pending}>
-            {pending ? "Saving…" : "Save changes"}
+            {pending ? "Guardando…" : "Guardar cambios"}
           </Button>
         </div>
       </form>

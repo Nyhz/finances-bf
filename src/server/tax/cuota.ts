@@ -72,11 +72,20 @@ export function applySavingsScale(baseEur: number, scale: SavingsScale): number 
   return roundEur(cuota);
 }
 
-// Compensación foral en la base del ahorro (art. 66 NF 13/2013 y equivalentes):
-// el saldo negativo de ganancias/pérdidas por transmisiones solo compensa el
-// saldo positivo de rendimientos del capital mobiliario hasta el 25% de éste;
-// el resto queda pendiente para los 4 ejercicios siguientes.
-const LOSS_OFFSET_CAP = 0.25;
+// Compensación foral en la base del ahorro (art. 66 NF 13/2013): los dos
+// compartimentos — (a) rendimientos del capital mobiliario y (b) ganancias y
+// pérdidas patrimoniales — se integran y compensan "EXCLUSIVAMENTE ENTRE SÍ".
+// No existe en Bizkaia la compensación cruzada del 25% del territorio común
+// (art. 49 LIRPF estatal): un saldo negativo de ganancias/pérdidas queda
+// íntegramente pendiente para los 4 ejercicios siguientes, contra su propio
+// compartimento.
+
+// Exención foral de dividendos (NF 13/2013, vigente desde 2014; suprimida en
+// territorio común en 2015 pero CONSERVADA en Bizkaia): los primeros 1.500 €
+// anuales de dividendos están exentos. No aplica a dividendos de valores
+// homogéneos comprados en los 2 meses previos al cobro y vendidos en los
+// 2 meses posteriores — esa guarda no se modela aquí (estimación).
+export const DIVIDEND_EXEMPTION_EUR = 1_500;
 
 /** Subconjunto estructural de TaxReport que necesita la estimación. */
 export type CuotaEstimateInput = {
@@ -97,11 +106,13 @@ export type CuotaEstimate = {
   scaleLabel: string;
   /** Saldo de ganancias/pérdidas patrimoniales computables (puede ser negativo). */
   saldoGananciasEur: number;
-  /** Saldo de rendimientos del capital mobiliario (dividendos brutos + intereses). */
+  /** Saldo de rendimientos del capital mobiliario tras la exención de
+   *  dividendos (dividendos brutos − exención + intereses). */
   saldoRcmEur: number;
-  /** Pérdida compensada contra RCM este ejercicio (límite 25% del saldo RCM). */
-  lossOffsetAppliedEur: number;
-  /** Pérdida que queda pendiente de compensar en los 4 ejercicios siguientes. */
+  /** Exención foral de dividendos aplicada (hasta 1.500 €). */
+  dividendExemptionAppliedEur: number;
+  /** Saldo negativo de G/P pendiente para los 4 ejercicios siguientes —
+   *  compartimentos estancos (art. 66): NUNCA compensa RCM. */
   lossCarryForwardEur: number;
   baseAhorroEur: number;
   cuotaIntegraEur: number;
@@ -118,19 +129,19 @@ export function estimateSavingsCuota(report: CuotaEstimateInput, interestEur = 0
   const scale = savingsScaleForYear(report.year);
 
   const saldoGanancias = roundEur(report.totals.netComputableEur);
-  const saldoRcm = roundEur(report.totals.dividendsGrossEur + interestEur);
+  const dividendExemptionApplied = roundEur(
+    Math.min(DIVIDEND_EXEMPTION_EUR, Math.max(0, report.totals.dividendsGrossEur)),
+  );
+  const saldoRcm = roundEur(
+    report.totals.dividendsGrossEur - dividendExemptionApplied + interestEur,
+  );
 
-  let lossOffsetApplied = 0;
-  let lossCarryForward = 0;
-  let baseAhorro: number;
-  if (saldoGanancias >= 0) {
-    baseAhorro = roundEur(saldoGanancias + saldoRcm);
-  } else {
-    const loss = -saldoGanancias;
-    lossOffsetApplied = roundEur(Math.min(loss, Math.max(0, saldoRcm) * LOSS_OFFSET_CAP));
-    lossCarryForward = roundEur(loss - lossOffsetApplied);
-    baseAhorro = roundEur(Math.max(0, saldoRcm - lossOffsetApplied));
-  }
+  // Art. 66: compartimentos estancos. El saldo positivo de cada compartimento
+  // suma a la base; un saldo negativo de G/P se arrastra íntegro 4 ejercicios.
+  const lossCarryForward = saldoGanancias < 0 ? roundEur(-saldoGanancias) : 0;
+  const baseAhorro = roundEur(
+    Math.max(0, saldoGanancias) + Math.max(0, saldoRcm),
+  );
 
   const cuotaIntegra = applySavingsScale(baseAhorro, scale);
 
@@ -147,7 +158,7 @@ export function estimateSavingsCuota(report: CuotaEstimateInput, interestEur = 0
     scaleLabel: scale.label,
     saldoGananciasEur: saldoGanancias,
     saldoRcmEur: saldoRcm,
-    lossOffsetAppliedEur: lossOffsetApplied,
+    dividendExemptionAppliedEur: dividendExemptionApplied,
     lossCarryForwardEur: lossCarryForward,
     baseAhorroEur: baseAhorro,
     cuotaIntegraEur: cuotaIntegra,

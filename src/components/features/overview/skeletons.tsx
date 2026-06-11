@@ -1,13 +1,17 @@
 import { Card } from "@/src/components/ui/Card";
 import { Skeleton } from "@/src/components/ui/Skeleton";
 
-// Mirrors the KPI summary pattern: one Card with two divided cells
+// Mirrors the KPI summary pattern: one Card with divided cells
 // (label / big value / caption), not the old row of standalone cards.
-export function KpiRowSkeleton() {
+export function KpiRowSkeleton({ cells = 2 }: { cells?: 2 | 3 }) {
   return (
     <Card className="p-0">
-      <div className="grid divide-y divide-border/60 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-        {Array.from({ length: 2 }).map((_, i) => (
+      <div
+        className={`grid divide-y divide-border/60 sm:divide-x sm:divide-y-0 ${
+          cells === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"
+        }`}
+      >
+        {Array.from({ length: cells }).map((_, i) => (
           <div key={i} className="flex flex-col gap-1.5 p-5">
             <Skeleton className="h-3 w-28" />
             <Skeleton className="h-9 w-44" />

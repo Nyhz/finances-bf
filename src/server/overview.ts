@@ -11,6 +11,7 @@ import {
 import { getAccountsSummary } from "./accounts";
 import { isCashBearingAccount } from "../lib/domain";
 import { toIsoDate } from "../lib/time";
+import { computeXirr, type CashFlow } from "../lib/xirr";
 import { listPositions, type PositionRow } from "./positions";
 
 export type OverviewRange = "1M" | "3M" | "6M" | "YTD" | "1Y" | "ALL";
@@ -36,7 +37,28 @@ export type OverviewKpis = {
   investedEur: number;
   unrealizedPnlEur: number;
   unrealizedPnlPct: number | null;
+  /** Money-weighted annual return (XIRR) over the selected window — the
+   *  investor's own rate, entry dates and contribution sizes included. */
+  xirrPct: number | null;
 };
+
+/** XIRR flows from the net-worth series: opening value counts as buying the
+ *  whole portfolio on day one, each contribution delta is money in/out, and
+ *  the closing value is the final payoff. Window-relative on purpose, so it
+ *  follows the same range filter as everything else. */
+export function xirrFromSeries(series: NetWorthPoint[]): number | null {
+  if (series.length < 2) return null;
+  const flows: CashFlow[] = [{ dateIso: series[0].date, amountEur: -series[0].valueEur }];
+  for (let i = 1; i < series.length; i++) {
+    const contribution = series[i].investedEur - series[i - 1].investedEur;
+    if (contribution !== 0) {
+      flows.push({ dateIso: series[i].date, amountEur: -contribution });
+    }
+  }
+  const last = series[series.length - 1];
+  flows.push({ dateIso: last.date, amountEur: last.valueEur });
+  return computeXirr(flows);
+}
 
 function rangeStart(range: OverviewRange, now: Date = new Date()): Date | null {
   if (range === "ALL") return null;
@@ -176,12 +198,14 @@ export async function getOverviewKpis(
   // baseline), so the card reads "€X gained, portfolio returned Y%".
   let unrealizedPnlPct: number | null =
     pctBase > 0 ? unrealizedPnlEur / pctBase : null;
+  let xirrPct: number | null = null;
   if (positions.length > 0) {
     const series = await getNetWorthSeries(filters, db);
     const last = series.at(-1);
     if (last && Number.isFinite(last.performanceIndex)) {
       unrealizedPnlPct = last.performanceIndex / 100 - 1;
     }
+    xirrPct = xirrFromSeries(series);
   }
   return {
     totalNetWorthEur: cashEur + marketValueEur,
@@ -189,6 +213,7 @@ export async function getOverviewKpis(
     investedEur,
     unrealizedPnlEur,
     unrealizedPnlPct,
+    xirrPct,
   };
 }
 

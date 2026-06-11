@@ -3,17 +3,22 @@ export const dynamic = "force-dynamic";
 import { Suspense } from "react";
 import Link from "next/link";
 import { Card } from "@/src/components/ui/Card";
+import { Skeleton } from "@/src/components/ui/Skeleton";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
 import { DataTable } from "@/src/components/ui/DataTable";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { ChartCardSkeleton } from "@/src/components/features/overview/skeletons";
-import { AccountsBarChart } from "@/src/components/features/statement/AccountsBarChart";
 import { AllocationDonut } from "@/src/components/features/statement/AllocationDonut";
+import {
+  CurrencyExposure,
+  type CurrencySlice,
+} from "@/src/components/features/statement/CurrencyExposure";
+import { DrawdownChart } from "@/src/components/features/statement/DrawdownChart";
 import { StatementExportMenu } from "@/src/components/features/statement/StatementExportMenu";
 import { StatementValueChart } from "@/src/components/features/statement/StatementValueChart";
-import { TypePnlChart } from "@/src/components/features/statement/TypePnlChart";
 import { cn } from "@/src/lib/cn";
 import { formatDateTime, formatEur, formatPercent } from "@/src/lib/format";
+import { computeRiskMetrics, drawdownSeries } from "@/src/lib/risk";
 import { accountTypeLabel } from "@/src/lib/labels";
 import {
   OVERVIEW_RANGES,
@@ -130,6 +135,56 @@ async function ValueChartCard({ range }: { range: OverviewRange }) {
   );
 }
 
+async function RiskCard({ range }: { range: OverviewRange }) {
+  const series = await getNetWorthSeries({ range, accountIds: [] });
+  const indexPoints = series.map((p) => ({ date: p.date, index: p.performanceIndex }));
+  const metrics = computeRiskMetrics(indexPoints);
+  const dd = drawdownSeries(indexPoints);
+  if (!metrics || dd.length === 0) {
+    return (
+      <StatesBlock
+        mode="empty"
+        title="Sin historial suficiente"
+        description="Las métricas de riesgo aparecerán con más días de valoraciones."
+      />
+    );
+  }
+  const stats: Array<{ label: string; value: string; hint?: string }> = [
+    {
+      label: "Drawdown máx.",
+      value: formatPercent(metrics.maxDrawdown),
+      hint: metrics.maxDrawdownDate ?? undefined,
+    },
+    {
+      label: "Volatilidad anual",
+      value:
+        metrics.annualizedVolatility == null
+          ? "—"
+          : formatPercent(metrics.annualizedVolatility),
+    },
+    {
+      label: "Peor día",
+      value: metrics.worstDay ? formatPercent(metrics.worstDay.dailyReturn) : "—",
+      hint: metrics.worstDay?.date,
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-4">
+      <DrawdownChart data={dd} />
+      <dl className="grid grid-cols-3 gap-2">
+        {stats.map((s) => (
+          <div key={s.label} className="flex flex-col gap-0.5">
+            <dt className="text-xs text-muted-foreground" title={s.hint}>
+              {s.label}
+            </dt>
+            <dd className="text-sm font-semibold tabular-nums">{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function AccountsTable({ accounts }: { accounts: StatementAccountLine[] }) {
   return (
     <DataTable<StatementAccountLine>
@@ -196,13 +251,22 @@ export default async function StatementPage({
       valueEur: g.marketValueEur,
       weight: g.weight,
     }));
-  const pnlRows = report.groups.map((g) => ({
-    assetType: g.assetType,
-    pnlEur: g.pnlEur,
-  }));
-  const accountBars = report.accounts
-    .filter((a) => a.totalEur !== 0)
-    .map((a) => ({ name: a.name, cashEur: a.cashEur, investedEur: a.investedEur }));
+  // Underlying-currency exposure: a USD-quoted asset is dollar risk even
+  // though the panel values everything in EUR.
+  const byCurrency = new Map<string, number>();
+  let valuedTotal = 0;
+  for (const line of report.groups.flatMap((g) => g.lines)) {
+    if (line.marketValueEur == null) continue;
+    byCurrency.set(line.currency, (byCurrency.get(line.currency) ?? 0) + line.marketValueEur);
+    valuedTotal += line.marketValueEur;
+  }
+  const currencySlices: CurrencySlice[] = [...byCurrency.entries()]
+    .map(([currency, valueEur]) => ({
+      currency,
+      valueEur,
+      weight: valuedTotal > 0 ? valueEur / valuedTotal : 0,
+    }))
+    .sort((a, b) => b.valueEur - a.valueEur);
 
   return (
     <div className="flex flex-col gap-6 p-8">
@@ -242,27 +306,24 @@ export default async function StatementPage({
               />
             )}
           </Card>
-          <Card title="Valor por cuenta">
-            {accountBars.length === 0 ? (
+          <Card title="Exposición por divisa">
+            {currencySlices.length === 0 ? (
               <StatesBlock
                 mode="empty"
-                title="Sin saldos"
-                description="Los saldos aparecerán cuando las cuentas tengan actividad."
+                title="Sin posiciones valoradas"
+                description="La exposición aparecerá cuando las posiciones tengan precio sincronizado."
               />
             ) : (
-              <AccountsBarChart rows={accountBars} />
+              <CurrencyExposure slices={currencySlices} />
             )}
           </Card>
-          <Card title="Plusvalía latente por tipo">
-            {pnlRows.length === 0 ? (
-              <StatesBlock
-                mode="empty"
-                title="Sin plusvalía aún"
-                description="Aparecerá cuando las posiciones tengan precio sincronizado."
-              />
-            ) : (
-              <TypePnlChart rows={pnlRows} />
-            )}
+          <Card title="Riesgo — caída desde máximos">
+            <Suspense
+              key={`risk:${range}`}
+              fallback={<Skeleton className="h-44 w-full" />}
+            >
+              <RiskCard range={range} />
+            </Suspense>
           </Card>
         </section>
       ) : (

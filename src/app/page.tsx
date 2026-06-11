@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { Card } from "@/src/components/ui/Card";
 import { SensitiveValue } from "@/src/components/ui/SensitiveValue";
 import { StatesBlock } from "@/src/components/ui/StatesBlock";
+import { BenchmarkToggles } from "@/src/components/features/overview/BenchmarkToggles";
 import { NetWorthChart } from "@/src/components/features/overview/NetWorthChart";
 import { OverviewFilters } from "@/src/components/features/overview/OverviewFilters";
 import { TopPositionsTable } from "@/src/components/features/overview/TopPositionsTable";
@@ -14,7 +15,9 @@ import {
   KpiRowSkeleton,
   TableCardSkeleton,
 } from "@/src/components/features/overview/skeletons";
+import { parseBenchmarkKeys, type BenchmarkKey } from "@/src/lib/benchmarks";
 import { listAccounts } from "@/src/server/accounts";
+import { getBenchmarkSeries } from "@/src/server/benchmarks";
 import {
   OVERVIEW_RANGES,
   getNetWorthSeries,
@@ -54,9 +57,15 @@ async function KpiRow({ filters }: { filters: Filters }) {
       : kpis.unrealizedPnlEur < 0
         ? "text-destructive"
         : "";
+  const xirrTone =
+    kpis.xirrPct != null && kpis.xirrPct > 0
+      ? "text-success"
+      : kpis.xirrPct != null && kpis.xirrPct < 0
+        ? "text-destructive"
+        : "";
   return (
     <Card className="p-0">
-      <div className="grid divide-y divide-border/60 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+      <div className="grid divide-y divide-border/60 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <div className="flex flex-col gap-1.5 p-5">
           <span
             className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
@@ -97,15 +106,46 @@ async function KpiRow({ filters }: { filters: Filters }) {
             Sobre el coste de compra — no tributa hasta vender.
           </span>
         </div>
+        <div className="flex flex-col gap-1.5 p-5">
+          <span
+            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title="Rentabilidad anualizada de TUS flujos reales (XIRR): pondera cada euro por el tiempo que llevó invertido. La plusvalía % mide la cartera; esta cifra te mide a ti — tus fechas de entrada y el tamaño de cada aportación."
+          >
+            TIR personal
+          </span>
+          <span
+            className={`text-3xl font-semibold tracking-tight tabular-nums ${xirrTone}`}
+          >
+            {kpis.xirrPct == null
+              ? "—"
+              : `${kpis.xirrPct >= 0 ? "+" : ""}${formatPercent(kpis.xirrPct)}`}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Anualizada, con tus fechas y aportaciones reales.
+          </span>
+        </div>
       </div>
     </Card>
   );
 }
 
-async function NetWorthCard({ filters }: { filters: Filters }) {
+async function NetWorthCard({
+  filters,
+  benchKeys,
+}: {
+  filters: Filters;
+  benchKeys: BenchmarkKey[];
+}) {
   const series = await getNetWorthSeries(filters);
+  const benchmarks = await getBenchmarkSeries(
+    benchKeys,
+    series.map((p) => p.date),
+  );
   return (
-    <Card title="Evolución del patrimonio">
+    <Card
+      title="Evolución del patrimonio"
+      action={<BenchmarkToggles active={benchKeys} />}
+    >
       {series.length === 0 ? (
         <StatesBlock
           mode="empty"
@@ -113,7 +153,7 @@ async function NetWorthCard({ filters }: { filters: Filters }) {
           description="Las valoraciones diarias aparecerán cuando se sincronicen precios y haya transacciones."
         />
       ) : (
-        <NetWorthChart data={series} />
+        <NetWorthChart data={series} benchmarks={benchmarks} />
       )}
     </Card>
   );
@@ -211,6 +251,7 @@ export default async function OverviewPage({
   const accountsList = await listAccounts();
   const validIds = new Set(accountsList.map((a) => a.id));
   const accountIds = rawAccountIds.filter((id) => validIds.has(id));
+  const benchKeys = parseBenchmarkKeys(params.bench);
   const filters: Filters = { range, accountIds };
   const suspenseKey = `${range}:${accountIds.length === 0 ? "all" : accountIds.join(",")}`;
 
@@ -259,14 +300,14 @@ export default async function OverviewPage({
         </>
       ) : (
         <>
-          <Suspense key={`kpi:${suspenseKey}`} fallback={<KpiRowSkeleton />}>
+          <Suspense key={`kpi:${suspenseKey}`} fallback={<KpiRowSkeleton cells={3} />}>
             <KpiRow filters={filters} />
           </Suspense>
           <Suspense
             key={`net:${suspenseKey}`}
             fallback={<ChartCardSkeleton title="Evolución del patrimonio" />}
           >
-            <NetWorthCard filters={filters} />
+            <NetWorthCard filters={filters} benchKeys={benchKeys} />
           </Suspense>
           <Suspense
             key={`top:${suspenseKey}`}

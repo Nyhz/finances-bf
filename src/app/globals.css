@@ -32,6 +32,11 @@
   --chart-3: 38 92% 50%;
   --chart-4: 340 82% 60%;
   --chart-5: 262 83% 65%;
+  --chart-6: 174 62% 47%;
+  --chart-7: 199 89% 55%;
+  --chart-8: 84 65% 50%;
+  --chart-9: 292 70% 62%;
+  --chart-10: 25 85% 58%;
 
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -70,6 +75,11 @@
   --chart-3: 38 92% 45%;
   --chart-4: 340 82% 55%;
   --chart-5: 262 83% 55%;
+  --chart-6: 174 62% 38%;
+  --chart-7: 199 89% 44%;
+  --chart-8: 84 65% 40%;
+  --chart-9: 292 70% 50%;
+  --chart-10: 25 85% 48%;
 }
 
 @theme inline {
@@ -105,6 +115,11 @@
   --color-chart-3: hsl(var(--chart-3));
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
+  --color-chart-6: hsl(var(--chart-6));
+  --color-chart-7: hsl(var(--chart-7));
+  --color-chart-8: hsl(var(--chart-8));
+  --color-chart-9: hsl(var(--chart-9));
+  --color-chart-10: hsl(var(--chart-10));
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;

@@ -1,5 +1,6 @@
 import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createdAtCol, idCol, updatedAtCol } from "./_shared";
+import { objectives } from "./objectives";
 
 export const assets = sqliteTable(
   "assets",
@@ -15,6 +16,11 @@ export const assets = sqliteTable(
     providerSymbol: text("provider_symbol"),
     currency: text("currency").notNull().default("EUR"),
     assetClassTax: text("asset_class_tax"),
+    /** Allocation bucket this asset's value counts toward (Objetivos page).
+     *  Per-asset on purpose — aggregates the same exposure across brokers. */
+    objectiveId: text("objective_id").references(() => objectives.id, {
+      onDelete: "set null",
+    }),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     notes: text("notes"),
     createdAt: createdAtCol(),

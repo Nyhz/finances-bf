@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   ArrowLeftRight,
   Coins,
+  Crosshair,
   FileText,
   LayoutDashboard,
   Receipt,
@@ -26,6 +27,7 @@ const primaryItems: NavItem[] = [
   { href: "/statement", label: "Extracto", icon: FileText },
   { href: "/accounts", label: "Cuentas", icon: Wallet },
   { href: "/assets", label: "Activos", icon: Coins },
+  { href: "/objectives", label: "Objetivos", icon: Crosshair },
   { href: "/transactions", label: "Transacciones", icon: ArrowLeftRight },
   { href: "/taxes", label: "Fiscalidad", icon: Receipt },
 ];

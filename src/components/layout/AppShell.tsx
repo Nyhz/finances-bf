@@ -8,7 +8,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <TopNav />
       <div className="flex min-h-0 flex-1">
         <SideNav />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        {/* scrollbar-gutter reserva el carril aunque no haya scrollbar: al
+            navegar entre páginas cortas y largas (o al resolver skeletons)
+            el contenido no se desplaza lateralmente. */}
+        <main className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">{children}</main>
       </div>
     </div>
   );

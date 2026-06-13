@@ -3,7 +3,7 @@ import * as yahoo from "./yahoo";
 import * as coingecko from "./coingecko";
 import type { HistoricalBar, Quote } from "./types";
 
-export type { CoinCandidate, HistoricalBar, Quote } from "./types";
+export type { CoinCandidate, HistoricalBar, Quote, SectorWeight } from "./types";
 
 export type PricingProviderName = "yahoo" | "coingecko";
 
@@ -36,5 +36,7 @@ export function providerForAsset(
 // single-file `src/lib/pricing.ts`. New code should prefer `providerForAsset`.
 export const fetchQuote = yahoo.fetchQuote;
 export const fetchHistory = yahoo.fetchHistory;
+export const fetchSectorWeightings = yahoo.fetchSectorWeightings;
+export const fetchAssetSector = yahoo.fetchAssetSector;
 
 export { searchCoins } from "./coingecko";

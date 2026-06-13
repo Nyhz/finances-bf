@@ -14,6 +14,7 @@ import {
   type CurrencySlice,
 } from "@/src/components/features/statement/CurrencyExposure";
 import { DrawdownChart } from "@/src/components/features/statement/DrawdownChart";
+import { SectorAllocation } from "@/src/components/features/statement/SectorAllocation";
 import { StatementExportMenu } from "@/src/components/features/statement/StatementExportMenu";
 import { StatementValueChart } from "@/src/components/features/statement/StatementValueChart";
 import { cn } from "@/src/lib/cn";
@@ -30,6 +31,7 @@ import {
   type StatementAccountLine,
   type StatementReport,
 } from "@/src/server/statement";
+import { getSectorAllocation } from "@/src/server/sectors";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -241,7 +243,10 @@ export default async function StatementPage({
 }) {
   const params = await searchParams;
   const range = parseRange(params.range);
-  const report = await getStatementReport();
+  const [report, sectorAllocation] = await Promise.all([
+    getStatementReport(),
+    getSectorAllocation(),
+  ]);
   const hasPositions = report.totals.positionsCount > 0;
 
   const slices = report.groups
@@ -332,6 +337,32 @@ export default async function StatementPage({
           title="Sin posiciones abiertas"
           description="Registra transacciones para construir tu extracto."
         />
+      )}
+
+      {hasPositions && (
+        <Card
+          title="Composición por sectores"
+          action={
+            sectorAllocation.asOf != null ? (
+              <span className="text-xs text-muted-foreground">
+                Datos a {formatDateTime(sectorAllocation.asOf)}
+              </span>
+            ) : undefined
+          }
+        >
+          {sectorAllocation.slices.length === 0 ? (
+            <StatesBlock
+              mode="empty"
+              title="Sin datos sectoriales"
+              description="La composición por sectores aparecerá tras la próxima sincronización de precios de tus ETFs y fondos."
+            />
+          ) : (
+            <SectorAllocation
+              slices={sectorAllocation.slices}
+              classifiedEur={sectorAllocation.classifiedEur}
+            />
+          )}
+        </Card>
       )}
 
       <Card title="Cuentas">

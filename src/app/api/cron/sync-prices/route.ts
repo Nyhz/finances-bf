@@ -1,9 +1,16 @@
 import { db } from "../../../../db/client";
 import { BENCHMARK_KEYS } from "../../../../lib/benchmarks";
 import { refreshActiveBenchmarks } from "../../../../lib/benchmark-sync";
-import { fetchHistory, yahooProvider, coingeckoProvider } from "../../../../lib/pricing";
+import {
+  fetchHistory,
+  fetchSectorWeightings,
+  fetchAssetSector,
+  yahooProvider,
+  coingeckoProvider,
+} from "../../../../lib/pricing";
 import { withRetry } from "../../../../lib/pricing/_net";
 import { syncPrices } from "../../../../lib/price-sync";
+import { syncSectorWeightings } from "../../../../lib/sector-sync";
 
 // Audit R3: single-process in-flight guard. Two overlapping cron hits would
 // interleave at await points between existence checks and writes; the second
@@ -34,7 +41,18 @@ async function handle(req: Request): Promise<Response> {
     const benchmarks = await refreshActiveBenchmarks(db, BENCHMARK_KEYS, {
       fetchHistory: (s, from, to) => withRetry(() => fetchHistory(s, from, to)),
     });
-    return Response.json({ ok: true, summary, benchmarks });
+    // Sector composition for ETFs/funds. Weekly-fresh (see sector-sync), so on
+    // most daily runs every asset is skipped — cheap to call unconditionally.
+    const sectors = await syncSectorWeightings(
+      db,
+      {
+        fetchSectorWeightings: (s) =>
+          withRetry(() => fetchSectorWeightings(s)),
+        fetchAssetSector: (s) => withRetry(() => fetchAssetSector(s)),
+      },
+      Date.now(),
+    );
+    return Response.json({ ok: true, summary, benchmarks, sectors });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ ok: false, error: message }, { status: 500 });

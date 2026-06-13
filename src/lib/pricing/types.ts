@@ -11,6 +11,11 @@ export type HistoricalBar = {
   currency: string;
 };
 
+export type SectorWeight = {
+  sector: string; // canonical Yahoo key, e.g. "technology"
+  weight: number; // fraction 0..1
+};
+
 export type CoinCandidate = {
   id: string;
   symbol: string;

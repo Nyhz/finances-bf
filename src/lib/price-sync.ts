@@ -44,7 +44,7 @@ function providerFor(asset: Pick<Asset, "assetType">): PricingProviderName {
   return asset.assetType === "crypto" ? "coingecko" : "yahoo";
 }
 
-function resolveSymbol(
+export function resolveSymbol(
   asset: { providerSymbol: string | null; symbol: string | null; ticker: string | null },
 ): string | null {
   return (

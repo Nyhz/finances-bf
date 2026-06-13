@@ -1,7 +1,8 @@
 import YahooFinance from "yahoo-finance2";
 import { toIsoDate } from "../fx";
+import { normalizeSectorKey } from "../sectors";
 import { withTimeout } from "./_net";
-import type { HistoricalBar, Quote } from "./types";
+import type { HistoricalBar, Quote, SectorWeight } from "./types";
 
 const yahooFinance = new YahooFinance();
 
@@ -35,6 +36,45 @@ export async function fetchQuote(symbol: string): Promise<Quote> {
         ? new Date(asOfRaw * 1000)
         : new Date();
   return { symbol, price, currency, asOf };
+}
+
+export async function fetchSectorWeightings(
+  symbol: string,
+): Promise<SectorWeight[]> {
+  const raw = (await withTimeout(
+    yahooFinance.quoteSummary(symbol, { modules: ["topHoldings"] }),
+    undefined,
+    `yahoo topHoldings ${symbol}`,
+  )) as {
+    topHoldings?: { sectorWeightings?: Array<Record<string, unknown>> };
+  };
+  // Yahoo returns one single-key object per sector, e.g. [{ technology: 0.29 }].
+  // Flatten to a tidy list, dropping the `maxAge` bookkeeping key and any
+  // non-finite values. Bond/cash funds legitimately return an empty list.
+  const rows = raw.topHoldings?.sectorWeightings ?? [];
+  const out: SectorWeight[] = [];
+  for (const row of rows) {
+    for (const [sector, value] of Object.entries(row)) {
+      if (sector === "maxAge") continue;
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        continue;
+      }
+      out.push({ sector, weight: value });
+    }
+  }
+  return out;
+}
+
+export async function fetchAssetSector(
+  symbol: string,
+): Promise<string | null> {
+  const raw = (await withTimeout(
+    yahooFinance.quoteSummary(symbol, { modules: ["assetProfile"] }),
+    undefined,
+    `yahoo assetProfile ${symbol}`,
+  )) as { assetProfile?: { sectorKey?: string; sector?: string } };
+  const key = raw.assetProfile?.sectorKey ?? raw.assetProfile?.sector;
+  return key ? normalizeSectorKey(key) : null;
 }
 
 export async function fetchHistory(

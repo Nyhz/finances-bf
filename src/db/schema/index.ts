@@ -6,6 +6,7 @@ export * from "./cash_movements";
 export * from "./daily_balances";
 export * from "./price_history";
 export * from "./asset_valuations";
+export * from "./asset_sector_weightings";
 export * from "./fx_rates";
 export * from "./audit_events";
 export * from "./tax_lots";

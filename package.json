@@ -18,7 +18,9 @@
     "advisor:curate": "curl -fsS --max-time 600 -H \"x-cron-secret: $CRON_SECRET\" http://localhost:3200/api/cron/advisor-curate",
     "advisor:chat-compact": "curl -fsS --max-time 300 -H \"x-cron-secret: $CRON_SECRET\" http://localhost:3200/api/cron/advisor-chat-compact",
     "backfill:asset-class": "tsx scripts/backfill-asset-class.ts",
-    "backfill:tax-lots": "tsx scripts/backfill-tax-lots.ts"
+    "backfill:tax-lots": "tsx scripts/backfill-tax-lots.ts",
+    "tg:net": "tsx scripts/tg-net.ts",
+    "tg:ask": "NODE_OPTIONS='--conditions=react-server' tsx scripts/tg-ask.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.177",

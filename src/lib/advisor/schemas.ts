@@ -36,7 +36,7 @@ const historyTurnSchema = z.object({
 
 export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000),
-  sessionId: z.string().trim().min(1).max(64),
+  conversationId: z.string().trim().min(1).max(64),
   history: z.array(historyTurnSchema).max(40).default([]),
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;

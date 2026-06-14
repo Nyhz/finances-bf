@@ -16,3 +16,5 @@ export * from "./tax_year_snapshots";
 export * from "./tax_declared_baselines";
 export * from "./objectives";
 export * from "./advisor_runs";
+export * from "./advisor_conversations";
+export * from "./advisor_messages";

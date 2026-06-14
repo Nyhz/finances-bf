@@ -5,12 +5,14 @@ import { AdvisorCostBar } from "@/src/components/features/advisor/AdvisorCostBar
 import { readAdvisorConfig } from "@/src/lib/advisor/config";
 import { readProposals } from "@/src/lib/advisor/proposals";
 import { getAdvisorCostSummary, getAdvisorMarketStatus } from "@/src/server/advisor";
+import { listConversations } from "@/src/server/advisorConversations";
 
 export default function AsesorPage() {
   const proposals = readProposals();
   const costs = getAdvisorCostSummary();
   const market = getAdvisorMarketStatus();
   const marketIngest = readAdvisorConfig().marketIngestEnabled;
+  const conversations = listConversations();
 
   return (
     <div className="flex h-full flex-col gap-5 p-8">
@@ -23,7 +25,7 @@ export default function AsesorPage() {
       </header>
 
       <AdvisorCostBar summary={costs} market={market} marketIngest={marketIngest} />
-      <AdvisorChat initialProposals={proposals} />
+      <AdvisorChat initialProposals={proposals} initialConversations={conversations} />
     </div>
   );
 }

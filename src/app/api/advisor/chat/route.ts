@@ -9,12 +9,14 @@ import { buildChatPrompt, buildChatSystemPrompt } from "@/src/lib/advisor/prompt
 import { extractAndApplyMemory } from "@/src/lib/advisor/extractMemory";
 import { recordAdvisorRun } from "@/src/lib/advisor/runs";
 import { appendTranscript } from "@/src/lib/advisor/transcripts";
+import { persistChatExchange } from "@/src/lib/advisor/conversationStore";
 import {
   getAdvisorContext,
   readDigestForPrompt,
   readProfileForPrompt,
   readRecentChatSummaries,
 } from "@/src/server/advisor";
+import { conversationExists } from "@/src/server/advisorConversations";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,11 @@ export async function POST(req: Request): Promise<Response> {
   if (!parsed.success) {
     return Response.json({ error: "Datos no válidos" }, { status: 400 });
   }
-  const { message, history, sessionId } = parsed.data;
+  const { message, history, conversationId } = parsed.data;
+
+  if (!conversationExists(conversationId)) {
+    return Response.json({ error: "Conversación no encontrada" }, { status: 404 });
+  }
 
   // Assemble context server-side (live portfolio + memory).
   const portfolio = await getAdvisorContext();
@@ -69,7 +75,8 @@ export async function POST(req: Request): Promise<Response> {
         }
 
         const now = new Date();
-        appendTranscript(sessionId, message, finalText, now);
+        appendTranscript(conversationId, message, finalText, now);
+        persistChatExchange(conversationId, message, finalText, now);
         recordAdvisorRun({
           kind: "chat",
           status: usage?.isError ? "error" : "ok",

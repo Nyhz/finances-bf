@@ -49,6 +49,8 @@ export type AdvisorOptions = {
   prompt: string;
   /** Read-only tools only; never Bash/Write/Edit. */
   allowedTools?: string[];
+  /** Remote MCP servers (e.g. the MyInvestor catalog) exposed to this call. */
+  mcpServers?: Options["mcpServers"];
   maxTurns?: number;
 };
 
@@ -80,6 +82,7 @@ function buildOptions(o: AdvisorOptions): Options {
     model: o.model,
     systemPrompt: o.systemPrompt,
     allowedTools: o.allowedTools ?? [],
+    ...(o.mcpServers ? { mcpServers: o.mcpServers } : {}),
     permissionMode: "dontAsk", // headless: never prompt, deny anything not allowed
     settingSources: [], // isolate from the repo's CLAUDE.md / project settings
     maxTurns: o.maxTurns ?? 6,

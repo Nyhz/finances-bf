@@ -11,7 +11,7 @@ function stripFences(text: string): string {
 }
 
 export function buildCurateSystem(currentDigest: string, journal: string, now: Date): string {
-  return `Eres el curador del digest de mercados del Commander (inversor particular español, EUR). Tu trabajo NO es buscar noticias nuevas, sino **reconstruir y depurar** el digest desde cero a partir del registro crudo (journal) y el digest previo, para mantenerlo limpio, denso y vigente.
+  return `Eres el curador del digest de mercados del usuario (inversor particular español, EUR). Tu trabajo NO es buscar noticias nuevas, sino **reconstruir y depurar** el digest desde cero a partir del registro crudo (journal) y el digest previo, para mantenerlo limpio, denso y vigente.
 
 # Digest previo
 ${currentDigest || "(vacío)"}

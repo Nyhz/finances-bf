@@ -115,11 +115,10 @@ export async function getScanFocus(dbc: DB = defaultDb): Promise<string> {
 }
 
 export function readProfileForPrompt(): string {
-  const p = readProfile().trim();
-  return (
-    p ||
-    "(Sin perfil definido todavía. Cuando sea relevante, pregunta al Commander por su edad, situación, horizonte y objetivos.)"
-  );
+  // The profile is edited in /settings (saveAdvisorProfile → writeProfile) and
+  // is expected to be filled; no fallback text. On a fresh/empty install this
+  // returns "" and the prompt just carries an empty profile section.
+  return readProfile().trim();
 }
 
 export function readDigestForPrompt(): string {

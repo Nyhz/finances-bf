@@ -6,7 +6,7 @@ import { advisorPaths } from "./paths";
 import { isoWeekKey } from "./dates";
 import { ensureDir, readTextOrEmpty, writeAtomic } from "./memory";
 
-export const CHAT_COMPACT_SYSTEM = `Resume las siguientes conversaciones entre el Commander y su asesor financiero en un resumen conciso, para dar continuidad a futuras charlas. En español, con viñetas. Captura: temas tratados, decisiones o conclusiones, dudas abiertas y cosas a seguir. NO incluyas cifras de la cartera (ya están disponibles en vivo); céntrate en lo conversacional. Si las conversaciones son triviales, resume en una o dos líneas.`;
+export const CHAT_COMPACT_SYSTEM = `Resume las siguientes conversaciones entre el usuario y su asesor financiero en un resumen conciso, para dar continuidad a futuras charlas. En español, con viñetas. Captura: temas tratados, decisiones o conclusiones, dudas abiertas y cosas a seguir. NO incluyas cifras de la cartera (ya están disponibles en vivo); céntrate en lo conversacional. Si las conversaciones son triviales, resume en una o dos líneas.`;
 
 /**
  * Compact the week's raw transcripts into a single weekly summary, then delete

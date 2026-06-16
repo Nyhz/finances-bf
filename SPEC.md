@@ -417,6 +417,14 @@ ADVISOR_PROFILE_MAX_BYTES=4096
 ADVISOR_TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=<bot de @BotFather, para el report matinal>
 TELEGRAM_CHAT_ID=<chat del usuario con el bot>
+
+# MCP oficial del catálogo MyInvestor (público, sin auth). Expone al chat del
+# asesor herramientas read-only para buscar/comparar fondos y carteras del
+# catálogo de MyInvestor (NO las posiciones del Commander) y encajarlas en la
+# cartera. Conectado vía la opción `mcpServers` del Agent SDK; las tools salen
+# como `mcp__myinvestor__*` y van en el allow-list del chat.
+ADVISOR_MYINVESTOR_ENABLED=true
+MYINVESTOR_MCP_URL=https://mcp.myinvestor.es/mcp
 ```
 
 No `NEXT_PUBLIC_API_URL` — data is fetched server-side via Drizzle, not HTTP.

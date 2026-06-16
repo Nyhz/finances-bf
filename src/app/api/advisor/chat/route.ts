@@ -6,6 +6,7 @@ import {
   type AdvisorUsage,
 } from "@/src/lib/advisor/client";
 import { buildChatPrompt, buildChatSystemPrompt } from "@/src/lib/advisor/prompts";
+import { myInvestorMcp } from "@/src/lib/advisor/myinvestor";
 import { extractAndApplyMemory } from "@/src/lib/advisor/extractMemory";
 import { recordAdvisorRun } from "@/src/lib/advisor/runs";
 import { appendTranscript } from "@/src/lib/advisor/transcripts";
@@ -39,11 +40,13 @@ export async function POST(req: Request): Promise<Response> {
 
   // Assemble context server-side (live portfolio + memory).
   const portfolio = await getAdvisorContext();
+  const myInvestor = myInvestorMcp();
   const systemPrompt = buildChatSystemPrompt({
     portfolio,
     profile: readProfileForPrompt(),
     digest: readDigestForPrompt(),
     summaries: readRecentChatSummaries(),
+    myInvestor: Boolean(myInvestor),
   });
   const prompt = buildChatPrompt(history, message);
   const model = process.env.ADVISOR_CHAT_MODEL ?? "claude-opus-4-8";
@@ -63,7 +66,8 @@ export async function POST(req: Request): Promise<Response> {
           model,
           systemPrompt,
           prompt,
-          allowedTools: ["WebSearch", "WebFetch"],
+          allowedTools: ["WebSearch", "WebFetch", ...(myInvestor?.allowedTools ?? [])],
+          mcpServers: myInvestor?.mcpServers,
           maxTurns: 8,
         })) {
           if (chunk.type === "delta") {

@@ -1,15 +1,14 @@
 export const dynamic = "force-dynamic";
 
 import { AdvisorChat } from "@/src/components/features/advisor/AdvisorChat";
-import { AdvisorCostBar } from "@/src/components/features/advisor/AdvisorCostBar";
+import { AdvisorStatusBar } from "@/src/components/features/advisor/AdvisorStatusBar";
 import { readAdvisorConfig } from "@/src/lib/advisor/config";
 import { readProposals } from "@/src/lib/advisor/proposals";
-import { getAdvisorCostSummary, getAdvisorMarketStatus } from "@/src/server/advisor";
+import { getAdvisorMarketStatus } from "@/src/server/advisor";
 import { listConversations } from "@/src/server/advisorConversations";
 
 export default function AsesorPage() {
   const proposals = readProposals();
-  const costs = getAdvisorCostSummary();
   const market = getAdvisorMarketStatus();
   const marketIngest = readAdvisorConfig().marketIngestEnabled;
   const conversations = listConversations();
@@ -24,7 +23,7 @@ export default function AsesorPage() {
         </p>
       </header>
 
-      <AdvisorCostBar summary={costs} market={market} marketIngest={marketIngest} />
+      <AdvisorStatusBar market={market} marketIngest={marketIngest} />
       <AdvisorChat initialProposals={proposals} initialConversations={conversations} />
     </div>
   );

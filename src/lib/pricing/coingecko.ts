@@ -76,6 +76,29 @@ export async function fetchQuote(symbol: string): Promise<Quote> {
 }
 
 /**
+ * Batched quote: one `/simple/price` request for many coin ids (used by the
+ * watchlist intraday refresh). CoinGecko returns EUR-native prices. Ids missing
+ * from the response (or without a finite EUR price) are skipped. Returned
+ * `symbol` is the lower-cased coin id, matching `fetchQuote`.
+ */
+export async function fetchQuotes(symbols: string[]): Promise<Quote[]> {
+  const ids = [...new Set(symbols.map((s) => s.trim().toLowerCase()).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const data = await cgFetch(
+    `/simple/price?ids=${ids.map(encodeURIComponent).join(",")}&vs_currencies=eur&include_last_updated_at=true`,
+    simplePriceSchema,
+  );
+  const out: Quote[] = [];
+  for (const id of ids) {
+    const row = data[id];
+    if (!row || row.eur == null || !Number.isFinite(row.eur)) continue;
+    const asOf = row.last_updated_at ? new Date(row.last_updated_at * 1000) : new Date();
+    out.push({ symbol: id, price: row.eur, currency: "EUR", asOf });
+  }
+  return out;
+}
+
+/**
  * Daily-close history. CoinGecko returns an array of [unix_ms, price] tuples.
  * For ranges > 90 days the API auto-selects daily granularity; within 90 days
  * it returns hourly points, which we downsample to one point per date.

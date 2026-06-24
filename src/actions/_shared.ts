@@ -58,6 +58,15 @@ export function revalidateAssetMetadata(): void {
   }
 }
 
+// Watchlist membership, its alerts, and fired alert-events all surface on the
+// Watchlist page, the global banner (mounted everywhere), the Assets table star,
+// and the audit log.
+export function revalidateWatchlist(): void {
+  for (const p of ["/", "/watchlist", "/assets", "/audit"]) {
+    revalidatePath(p);
+  }
+}
+
 export function revalidateAccountMutation(): void {
   for (const p of ["/", "/accounts", "/audit"]) {
     revalidatePath(p);

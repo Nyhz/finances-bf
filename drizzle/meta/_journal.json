@@ -155,6 +155,27 @@
       "when": 1781563483150,
       "tag": "0021_optimal_piledriver",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1781776078716,
+      "tag": "0022_common_thena",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1781778028212,
+      "tag": "0023_elite_black_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1781780656944,
+      "tag": "0024_steep_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

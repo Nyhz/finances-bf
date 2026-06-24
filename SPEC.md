@@ -123,7 +123,9 @@ Recharts, styled via CSS variables so they track the theme. Tooltips minimal —
 | `/` | Overview dashboard — total portfolio value, range selector, account filter, performance chart, top positions, allocation donut. |
 | `/accounts` | List of accounts with cash balances and account-type badges. Create/delete. |
 | `/accounts/[accountId]` | Account detail — positions, performance chart, ledger, export statement PDF. |
-| `/assets` | Master asset list with current holdings, create/edit/deactivate, manual price override. |
+| `/assets` | Master asset list with current holdings, create/edit/deactivate, manual price override. Star toggle marks an asset for the Watchlist. |
+| `/watchlist` | Cards for starred assets — live intraday quote (≈5 min cache), price-vs-close change, sparkline, and per-asset price alerts (below/above a threshold, optional Telegram). |
+| `/discover` | AI opportunity discovery: a Claude agent (WebSearch) proposes stock candidates per predefined baremos (below DMA200, 30-day drawdown, momentum-without-highs, hot-sector laggard); a deterministic engine verifies each with real Yahoo history and only confirmed ones show, with the agent's thesis + the hard number + «add to watchlist». Weekly (Mon 15:30 Madrid) + manual «Descubrir ahora». No cost shown. |
 | `/transactions` | Unified timeline of asset trades + cash movements. Manual create flow (buy / sell / dividend / fee / swap / cash movement). **No CSV import** — the broker importers were removed 2026-06; manual entry is the only registration path. |
 | `/statement` | Visual portfolio statement — value chart with range selector, reparto por tipo de activo, composición por regiones geográficas (JustETF), riesgo (caída desde máximos + volatilidad), composición por objetivos (1/3) y por sectores (2/3, Yahoo), value by account, P&L by type, holdings grouped by type, costes (comisiones + TER), accounts table. Export PDF / XLSX / CSV via `/api/exports/statement?format=`. |
 | `/objectives` | Objetivos de asignación por activo — peso actual vs. objetivo, desviación (% y €), planificador de aportación. |
@@ -135,6 +137,9 @@ Recharts, styled via CSS variables so they track the theme. Tooltips minimal —
 | `/audit` | Audit log of entity mutations, filterable by entity type/id. |
 | `/health` | JSON health check. |
 | `POST /api/cron/sync-prices` | Price + composition sync (shared-token gated). |
+| `POST /api/cron/sync-watchlist` | Intraday quote refresh for watchlisted assets (≈5 min, shared-token gated). Writes only the `watchlist_quotes` cache + alert tables; never `price_history`. Evaluates alerts and fires banner/Telegram notifications. |
+| `GET /api/watchlist/alerts` | Unacknowledged fired alerts, polled by the global banner. |
+| `POST /api/cron/discover-scan` | Weekly opportunity discovery (shared-token gated). Runs the Claude discovery agent + deterministic verification, replaces the stored `discover_candidates` set, records the run in `advisor_runs` (kind=discover). Also reachable on demand via the `triggerDiscoverScan` action. |
 | `POST /api/cron/backfill-prices` | On-demand historical price backfill. |
 | `POST /api/cron/advisor-scan` \| `advisor-curate` \| `advisor-chat-compact` | AI advisor maintenance crons (market scan + morning brief, weekly digest curation, weekly chat compaction). |
 | `POST /api/advisor/chat` | Streaming advisor chat endpoint. |
@@ -155,7 +160,15 @@ All monetary values are stored in EUR (base currency) alongside native currency 
 
 **Account** — `id`, `name`, `currency`, `accountType` (broker / bank / crypto / cash / other), `openingBalanceEur`, `currentCashBalanceEur`, `createdAt`, `updatedAt`.
 
-**Asset** — `id`, `name`, `assetType` (etf / stock / bond / crypto / fund / cash-equivalent / other), `subtype` (optional), `symbol`, `ticker`, `isin`, `exchange`, `providerSymbol` (Yahoo Finance symbol override), `currency`, `ter` (annual %), `objectiveId`, `excludeFromObjectives` (leave out of the allocation plan), `isActive`, `notes`.
+**Asset** — `id`, `name`, `assetType` (etf / stock / bond / crypto / fund / cash-equivalent / other), `subtype` (optional), `symbol`, `ticker`, `isin`, `exchange`, `providerSymbol` (Yahoo Finance symbol override), `currency`, `ter` (annual %), `objectiveId`, `excludeFromObjectives` (leave out of the allocation plan), `isActive`, `isWatchlisted` (starred for the Watchlist + intraday refresh), `notes`.
+
+**WatchlistQuote** (one per watchlisted asset, upserted) — `id`, `assetId`, `price`, `currency`, `asOf`, `source` (`yahoo`/`coingecko`), `updatedAt`. Last-write-wins intraday cache filled by the `sync-watchlist` cron (≈5 min). **Not a time series and never written to `price_history`** — the daily 23:00 close stays the only source of truth for history, valuations, and long-range charts.
+
+**PriceAlert** — `id`, `assetId`, `kind` (`price_below` / `price_above`), `threshold` (asset's native quote currency), `notifyTelegram`, `status` (`armed` / `triggered`, with hysteresis: re-arms when the price crosses back to the safe side), `isActive`, `lastTriggeredAt`, `createdAt`, `updatedAt`.
+
+**AlertEvent** — `id`, `alertId`, `assetId`, `kind`, `threshold`, `priceAtTrigger`, `currency`, `triggeredAt`, `acknowledgedAt` (null until dismissed), `telegramSent`, `createdAt`. The app-wide banner shows every unacknowledged event (with a glow) until manually dismissed.
+
+**DiscoverCandidate** — a verified opportunity from a Discover run. `id`, `runId`, `symbol`, `name`, `criterion`, `thesis` (the agent's argument), `sourceUrl`, `detail` (the verified hard number, e.g. «−23% desde máx. 30d»), the metrics snapshot (`price`, `currency`, `dma200`, `pctVsDma200`, `drawdown30d`, `momentum20d`, `pctBelow52wHigh`, `sector`, `sectorStrength3m`, `ownReturn3m`), `status` (only `confirmed` is stored), `discoveredAt`. **Not FK'd to assets** — it's a market-wide ticker; «add to watchlist» find-or-creates the asset. The latest run replaces the set. The discovery agent (`src/lib/discover/`) proposes; the deterministic verifier decides — no hallucinated number reaches the UI. Run telemetry lives in `advisor_runs` (kind=discover); **cost is never surfaced in the UI**.
 
 **AssetPosition** (one per asset, aggregated) — `id`, `assetId`, `quantity`, `averageCost` (EUR), `manualPrice`, `manualPriceAsOf`.
 
@@ -286,6 +299,15 @@ Inline scheduled route, not a separate worker.
 - FX ingestion: pulls `EURUSD=X` (and any other needed pairs) into `price_history` with `source='yahoo_fx'`.
 - Asset valuations: after each sync, recomputes `asset_valuations` for active assets for the new day.
 - Composition snapshots: the same cron also refreshes the sector and geographic breakdowns (see below). Both are freshness-gated, so most daily runs skip every asset.
+
+### Intraday watchlist refresh (separate lane)
+A second, independent cron keeps **watchlisted** assets fresh between daily closes — the daily 23:00 sync alone can miss an intraday dip that recovers by close.
+
+- Route: `src/app/api/cron/sync-watchlist/route.ts`, engine `src/lib/watchlist-sync.ts`. Shared-token gated (`CRON_SECRET`); kill-switchable via `WATCHLIST_SYNC_ENABLED=false`.
+- Triggered every **5 min** by launchd (`com.finances.watchlist-sync`, `StartInterval` 300; plist in `scripts/launchd/`, script `scripts/cron-watchlist-sync.sh`).
+- **Batched by provider**: one Yahoo `quote([...])` call for all equity/ETF/fund symbols + one CoinGecko `/simple/price` call for all crypto ids — at most 2 outbound requests per run regardless of watchlist size, so soft-ban risk stays negligible.
+- Writes **only** the `watchlist_quotes` cache (upsert per asset) and the alert tables. **Never touches `price_history` / `asset_valuations`** — long-range charts keep their daily granularity.
+- Evaluates each active `price_alert` against the fresh price: armed→triggered (writes an `alert_event`, optionally sends Telegram via the shared `sendTelegram`), with hysteresis re-arming when the price crosses back. Unacknowledged events drive the global glow banner (mounted in `AppShell`, polled via `GET /api/watchlist/alerts`).
 
 ### Composition data (sectors & geography)
 Slow-moving holdings breakdowns, snapshotted per asset (no history), surfaced as the composition donuts on `/statement`. Never call these sources from a component or action — go through `src/lib/pricing/`, stubbed in tests.

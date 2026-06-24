@@ -17,18 +17,23 @@ export type PricingProviderName = "yahoo" | "coingecko";
 export type PricingProvider = {
   name: PricingProviderName;
   fetchQuote: (symbol: string) => Promise<Quote>;
+  /** Batched quote — one provider request for many symbols. Skips symbols the
+   *  provider can't price rather than failing the whole batch. */
+  fetchQuotes: (symbols: string[]) => Promise<Quote[]>;
   fetchHistory: (symbol: string, from: Date, to: Date) => Promise<HistoricalBar[]>;
 };
 
 export const yahooProvider: PricingProvider = {
   name: "yahoo",
   fetchQuote: yahoo.fetchQuote,
+  fetchQuotes: yahoo.fetchQuotes,
   fetchHistory: yahoo.fetchHistory,
 };
 
 export const coingeckoProvider: PricingProvider = {
   name: "coingecko",
   fetchQuote: coingecko.fetchQuote,
+  fetchQuotes: coingecko.fetchQuotes,
   fetchHistory: coingecko.fetchHistory,
 };
 

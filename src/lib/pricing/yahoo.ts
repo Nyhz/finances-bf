@@ -38,6 +38,48 @@ export async function fetchQuote(symbol: string): Promise<Quote> {
   return { symbol, price, currency, asOf };
 }
 
+/**
+ * Batched quote: one Yahoo request for many symbols (used by the watchlist
+ * intraday refresh so N assets cost a single call, not N). Skips any row Yahoo
+ * returns without a usable price/currency rather than failing the whole batch —
+ * a single dead symbol shouldn't blank the watchlist. Returned `symbol` mirrors
+ * Yahoo's echo; callers match case-insensitively.
+ */
+export async function fetchQuotes(symbols: string[]): Promise<Quote[]> {
+  const unique = [...new Set(symbols.map((s) => s.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+  const raw = (await withTimeout(
+    yahooFinance.quote(unique),
+    undefined,
+    `yahoo quotes ${unique.length}`,
+  )) as Array<{
+    symbol?: string;
+    regularMarketPrice?: number;
+    currency?: string;
+    regularMarketTime?: Date | number;
+  }>;
+  const out: Quote[] = [];
+  for (const row of Array.isArray(raw) ? raw : [raw]) {
+    const price = row.regularMarketPrice;
+    if (price == null || !Number.isFinite(price)) continue;
+    if (!row.currency || !/^[A-Za-z]{3}$/.test(row.currency)) continue;
+    const asOfRaw = row.regularMarketTime;
+    const asOf =
+      asOfRaw instanceof Date
+        ? asOfRaw
+        : typeof asOfRaw === "number"
+          ? new Date(asOfRaw * 1000)
+          : new Date();
+    out.push({
+      symbol: row.symbol ?? "",
+      price,
+      currency: row.currency.toUpperCase(),
+      asOf,
+    });
+  }
+  return out;
+}
+
 export async function fetchSectorWeightings(
   symbol: string,
 ): Promise<SectorWeight[]> {

@@ -160,3 +160,50 @@ html[data-sensitive="true"] .sensitive {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
+
+/* Watchlist alert banner: stays up until acknowledged, with an attention glow so
+   a fired price alert can't be missed. Colours track the theme via --warning. */
+@keyframes alert-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px hsl(var(--warning) / 0.5),
+      0 0 12px 0 hsl(var(--warning) / 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px hsl(var(--warning) / 0.85),
+      0 0 22px 4px hsl(var(--warning) / 0.6);
+  }
+}
+
+.alert-glow {
+  animation: alert-pulse 2s ease-in-out infinite;
+}
+
+@keyframes alert-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.alert-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    hsl(var(--warning) / 0.12) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: alert-shimmer 3s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-glow,
+  .alert-shimmer {
+    animation: none;
+  }
+}

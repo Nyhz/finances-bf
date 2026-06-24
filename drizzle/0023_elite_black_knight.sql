@@ -1,0 +1,1 @@
+ALTER TABLE `watchlist_quotes` ADD `prev_price` real;

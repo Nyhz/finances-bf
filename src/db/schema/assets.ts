@@ -26,6 +26,12 @@ export const assets = sqliteTable(
       onDelete: "set null",
     }),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    /** Marked for the Watchlist page: gets a separate intraday quote refresh
+     *  (every 15 min, cached in `watchlist_quotes`) and can carry price alerts.
+     *  Does NOT change how the daily 23:00 close feeds `price_history`. */
+    isWatchlisted: integer("is_watchlisted", { mode: "boolean" })
+      .notNull()
+      .default(false),
     /** When true, the asset is left out of the allocation-objectives view
      *  entirely (not even «Sin objetivo») and excluded from its valued total.
      *  For non-discretionary holdings like a fixed-contribution pension/EPSV. */

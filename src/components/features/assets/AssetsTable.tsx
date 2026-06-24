@@ -14,6 +14,7 @@ import type { Asset } from "@/src/db/schema";
 import type { AssetListRow } from "@/src/server/assets";
 import { EditAssetModal } from "./EditAssetModal";
 import { SetManualPriceModal } from "./SetManualPriceModal";
+import { WatchlistStar } from "./WatchlistStar";
 
 type ModalKind = "edit" | "price" | "deactivate" | "delete" | null;
 
@@ -78,6 +79,11 @@ export function AssetsTable({ rows }: { rows: AssetListRow[] }) {
         rows={rows}
         getRowKey={(r) => r.id}
         columns={[
+          {
+            key: "watchlist",
+            header: "",
+            cell: (r) => <WatchlistStar assetId={r.id} watchlisted={r.isWatchlisted} />,
+          },
           { key: "symbol", header: "Símbolo", cell: (r) => r.symbol ?? "—" },
           { key: "name", header: "Nombre", cell: (r) => r.name },
           {

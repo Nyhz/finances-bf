@@ -353,6 +353,46 @@ async function computeNetWorthSeries(
   }
   const allRows = [...carryIns, ...rows];
 
+  // Cost-basis fallback: a held asset with no market valuation yet (e.g. a fund
+  // bought before its first NAV publishes) is otherwise ignored by the market-
+  // value line while the invested line already counts the purchase — reading as
+  // a phantom loss. Synthesise an at-cost valuation (cumulative −cashImpact, the
+  // same figure the invested line uses) at each trade date so the two lines
+  // track. Only for assets with NO real valuation in scope; once a real price
+  // exists it takes over. In-memory only — nothing is written to the DB.
+  const valuedAssetIds = new Set(allRows.map((r) => r.assetId));
+  const unpricedAssetIds = scopeAssetIdList.filter((id) => !valuedAssetIds.has(id));
+  if (unpricedAssetIds.length > 0) {
+    const costTrades = await db
+      .select({
+        assetId: assetTransactions.assetId,
+        tradedAt: assetTransactions.tradedAt,
+        cashImpactEur: assetTransactions.cashImpactEur,
+      })
+      .from(assetTransactions)
+      .where(inArray(assetTransactions.assetId, unpricedAssetIds))
+      .orderBy(asc(assetTransactions.tradedAt))
+      .all();
+    const runningByAsset = new Map<string, number>();
+    for (const t of costTrades) {
+      const running = (runningByAsset.get(t.assetId) ?? 0) - t.cashImpactEur;
+      runningByAsset.set(t.assetId, running);
+      if (running <= 0) continue;
+      // Clamp pre-window trades to the window start so the cost carries in.
+      const tradeIso = toIsoDate(new Date(t.tradedAt));
+      allRows.push({
+        id: "",
+        assetId: t.assetId,
+        valuationDate: tradeIso < startIso ? startIso : tradeIso,
+        quantity: 0,
+        unitPriceEur: 0,
+        marketValueEur: Math.round(running * 100) / 100,
+        priceSource: "cost",
+        createdAt: 0,
+      });
+    }
+  }
+
   // Figure out whether any asset in scope trades weekends (crypto). If none
   // do, Sat/Sun dates in the series are noise — either forward-filled stock
   // values (flat) or empty gaps — and we drop them so the chart stays at one

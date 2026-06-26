@@ -166,3 +166,37 @@ describe("getNetWorthSeries — sold-out positions", () => {
     expect(byDate.get("2026-01-09")).toBe(160);
   });
 });
+
+describe("getNetWorthSeries — cost fallback for unpriced holdings", () => {
+  it("values a held asset with no valuation at cost so market value tracks invested", async () => {
+    const db = makeDb();
+    seedAccount(db);
+    db.insert(schema.assets)
+      .values({ id: "ast_grp", name: "Groupama", assetType: "fund", currency: "EUR" })
+      .run();
+    // Bought, but no market valuation exists yet (fresh fund, NAV lag).
+    seedTrade(db, "tx_grp", "ast_grp", "buy", "2026-01-05", 2, 7697.3);
+
+    const series = await getNetWorthSeries({ range: "ALL" }, db);
+    expect(series.length).toBeGreaterThan(0);
+    const p = series.find((s) => s.date === "2026-01-05");
+    expect(p).toBeDefined();
+    // Market-value line must equal invested (cost), not 0 → no phantom loss.
+    expect(p!.valueEur).toBeCloseTo(7697.3, 2);
+    expect(p!.investedEur).toBeCloseTo(7697.3, 2);
+  });
+
+  it("prefers a real valuation over cost once one exists", async () => {
+    const db = makeDb();
+    seedAccount(db);
+    db.insert(schema.assets)
+      .values({ id: "ast_grp", name: "Groupama", assetType: "fund", currency: "EUR" })
+      .run();
+    seedTrade(db, "tx_grp", "ast_grp", "buy", "2026-01-05", 2, 7697.3);
+    seedValuation(db, "ast_grp", "2026-01-05", 2, 7800); // real NAV that day
+
+    const series = await getNetWorthSeries({ range: "ALL" }, db);
+    const p = series.find((s) => s.date === "2026-01-05");
+    expect(p!.valueEur).toBeCloseTo(7800, 2); // market value wins, not cost
+  });
+});

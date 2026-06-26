@@ -5,6 +5,7 @@ import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { createAsset } from "@/src/actions/createAsset";
 import { ASSET_TYPES } from "@/src/actions/_constants";
+import { PRICE_SOURCES, PRICE_SOURCE_LABELS } from "@/src/lib/domain";
 import { assetTypeLabel } from "@/src/components/ui/AssetTypeBadge";
 
 type FormState = {
@@ -16,6 +17,7 @@ type FormState = {
   ter: string;
   exchange: string;
   providerSymbol: string;
+  priceSource: string;
   isActive: boolean;
 };
 
@@ -28,6 +30,7 @@ const INITIAL: FormState = {
   ter: "",
   exchange: "",
   providerSymbol: "",
+  priceSource: "",
   isActive: true,
 };
 
@@ -75,6 +78,7 @@ export function CreateAssetModal({
       ter: parseTer(form.ter),
       exchange: form.exchange.trim() ? form.exchange.trim() : null,
       providerSymbol: form.providerSymbol.trim() ? form.providerSymbol.trim() : null,
+      priceSource: form.priceSource ? form.priceSource : null,
       isActive: form.isActive,
     };
 
@@ -208,6 +212,25 @@ export function CreateAssetModal({
             maxLength={64}
             placeholder="opcional — sustituye al símbolo en la sincronización de precios"
           />
+        </Field>
+
+        <Field label="Fuente de precio" errors={fieldErrors.priceSource}>
+          <select
+            value={form.priceSource}
+            onChange={(e) => update("priceSource", e.target.value)}
+            className={inputClass}
+          >
+            <option value="">Automática (por tipo)</option>
+            {PRICE_SOURCES.map((s) => (
+              <option key={s} value={s}>
+                {PRICE_SOURCE_LABELS[s]}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground">
+            Déjalo en automática salvo para fondos que Yahoo no cotiza:
+            elige «Financial Times» y la sincronización usará el ISIN.
+          </span>
         </Field>
 
         <label className="flex items-center gap-2 text-sm">

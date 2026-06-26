@@ -184,6 +184,44 @@ describe("e2e — rebuildValuationsForAsset", () => {
     expect(vals[0].marketValueEur).toBeCloseTo(4500, 1);
   });
 
+  it("resolves the FT price symbol (ISIN:CURRENCY), not the plain symbol field", async () => {
+    const assetId = ulid();
+    const now = Date.now();
+    db
+      .insert(schema.assets)
+      .values({
+        id: assetId,
+        name: "Groupama Trésorerie IC",
+        assetType: "fund",
+        symbol: "GROUPAMA", // human label — NOT where FT prices live
+        isin: "FR0000989626",
+        priceSource: "ft",
+        currency: "EUR",
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    insertBuy(db, assetId, accountId, "2026-01-05", 2, 44000, 1, "EUR");
+    // FT writes price_history under the ISIN:CURRENCY symbol.
+    seedPriceHistory(db, "FR0000989626:EUR", "2026-01-05", "2026-01-20", 44000);
+
+    db.transaction((tx) => rebuildValuationsForAsset(tx, assetId));
+
+    const vals = db
+      .select()
+      .from(schema.assetValuations)
+      .where(eq(schema.assetValuations.assetId, assetId))
+      .orderBy(asc(schema.assetValuations.valuationDate))
+      .all();
+
+    // Without the fix the rebuild looks up "GROUPAMA", finds nothing, and emits
+    // zero rows. With it, FT bars are found and valued: 2 × 44000 = 88000 €.
+    expect(vals.length).toBeGreaterThan(0);
+    expect(vals[0].marketValueEur).toBeCloseTo(88000, 1);
+  });
+
   it("is idempotent — re-running wipes and repopulates without drift", async () => {
     const assetId = ulid();
     const now = Date.now();

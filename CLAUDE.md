@@ -72,7 +72,7 @@ Position and cash-balance recomputation is part of the transaction that inserts 
 
 The CSV importer subsystem was removed (2026-06; manual entry is the only registration path). Dedup discipline survives it: every inserted `asset_transactions` / `account_cash_movements` row carries a `rowFingerprint` (see SPEC §5.4). Do not insert a row without one.
 
-The market-data clients (Yahoo, CoinGecko, and JustETF for geographic composition) are wrapped under `src/lib/pricing/`. Tests must stub them — no real network calls in the test suite. The cron route (`src/app/api/cron/sync-prices/route.ts`) is gated by `CRON_SECRET` and must be idempotent within a calendar day; besides prices it refreshes the sector (7-day) and geography (30-day) composition snapshots. See SPEC §6.
+The market-data clients (Yahoo, CoinGecko, Financial Times for mutual-fund NAVs + history by ISIN, and JustETF for geographic composition) are wrapped under `src/lib/pricing/`. An asset's `priceSource` column overrides provider selection per asset (null = pick by type); set it to `ft` for funds Yahoo can't quote. Tests must stub them — no real network calls in the test suite. The cron route (`src/app/api/cron/sync-prices/route.ts`) is gated by `CRON_SECRET` and must be idempotent within a calendar day; besides prices it refreshes the sector (7-day) and geography (30-day) composition snapshots. See SPEC §6.
 
 ---
 

@@ -21,6 +21,7 @@ export type PriceClient = {
 export type PriceClients = {
   yahoo: PriceClient;
   coingecko: PriceClient;
+  ft: PriceClient;
 };
 
 export type SyncError = {
@@ -40,19 +41,58 @@ export type SyncSummary = {
   errors: SyncError[];
 };
 
-function providerFor(asset: Pick<Asset, "assetType">): PricingProviderName {
+function providerFor(
+  asset: Pick<Asset, "assetType" | "priceSource">,
+): PricingProviderName {
+  // An explicit per-asset override wins over the type-based default — this is
+  // how a money-market fund Yahoo can't price gets routed to FT.
+  if (
+    asset.priceSource === "ft" ||
+    asset.priceSource === "yahoo" ||
+    asset.priceSource === "coingecko"
+  ) {
+    return asset.priceSource;
+  }
   return asset.assetType === "crypto" ? "coingecko" : "yahoo";
 }
 
 export function resolveSymbol(
-  asset: { providerSymbol: string | null; symbol: string | null; ticker: string | null },
+  asset: {
+    providerSymbol: string | null;
+    symbol: string | null;
+    ticker: string | null;
+    isin?: string | null;
+    currency?: string | null;
+  },
+  provider?: PricingProviderName,
 ): string | null {
+  // FT is keyed by its public `ISIN:CURRENCY` symbol (e.g. FR0000989626:EUR).
+  if (provider === "ft") {
+    const isin = asset.isin?.trim();
+    if (!isin) return null;
+    return `${isin}:${(asset.currency ?? "EUR").trim().toUpperCase()}`;
+  }
   return (
     (asset.providerSymbol && asset.providerSymbol.trim()) ||
     (asset.symbol && asset.symbol.trim()) ||
     (asset.ticker && asset.ticker.trim()) ||
     null
   );
+}
+
+/**
+ * The `price_history.symbol` an asset's prices live under — the single source
+ * of truth shared by every writer (daily sync, backfill, manual price) and
+ * reader (valuation rebuild). Routes by the asset's effective provider so FT
+ * funds resolve to `ISIN:CURRENCY` while everything else keeps its ticker.
+ */
+export function priceSymbolForAsset(
+  asset: Pick<
+    Asset,
+    "assetType" | "priceSource" | "providerSymbol" | "symbol" | "ticker" | "isin" | "currency"
+  >,
+): string | null {
+  return resolveSymbol(asset, providerFor(asset));
 }
 
 
@@ -89,14 +129,16 @@ export async function syncPrices(
   for (const asset of activeAssets) {
     const provider = providerFor(asset);
     providerByAsset.set(asset.id, provider);
-    const symbol = resolveSymbol(asset);
+    const symbol = resolveSymbol(asset, provider);
     if (!symbol) {
       summary.errors.push({
         assetId: asset.id,
         message:
           provider === "coingecko"
             ? "crypto asset missing providerSymbol (CoinGecko coin id)"
-            : "no provider symbol / symbol / ticker set",
+            : provider === "ft"
+              ? "FT asset missing ISIN"
+              : "no provider symbol / symbol / ticker set",
       });
       continue;
     }
@@ -231,9 +273,9 @@ export async function syncPrices(
   };
 
   for (const asset of activeAssets) {
-    const symbol = resolveSymbol(asset);
-    if (!symbol) continue;
     const provider = providerByAsset.get(asset.id) ?? providerFor(asset);
+    const symbol = resolveSymbol(asset, provider);
+    if (!symbol) continue;
     const priceRow = await db
       .select()
       .from(priceHistory)

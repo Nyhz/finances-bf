@@ -14,7 +14,16 @@ export type PositionRow = {
   position: AssetPosition;
   asset: Asset;
   valuation: AssetValuation | null;
+  /** Market value of the holding (quantity × latest unit price), or null when
+   *  no market valuation exists yet. Keep using this where "market price"
+   *  semantics matter (tax, composition). */
   valuationEur: number | null;
+  /** Net-worth value to display: the market valuation when present, otherwise
+   *  the cost basis. A freshly bought holding is carried at cost (P/L 0) until
+   *  a market price arrives — never shown as a 0 / -100% loss. */
+  marketOrCostEur: number;
+  /** True when `marketOrCostEur` is the cost basis (no market price yet). */
+  valuedAtCost: boolean;
 };
 
 /** Latest valuation per asset in two queries (audit P2) instead of one
@@ -66,13 +75,16 @@ export async function listPositions(db: DB = defaultDb): Promise<PositionRow[]> 
   );
   return rows.map((row) => {
     const valuation = valuationByAsset.get(row.position.assetId) ?? null;
+    const valuationEur = valuation
+      ? row.position.quantity * valuation.unitPriceEur
+      : null;
     return {
       position: row.position,
       asset: row.asset,
       valuation,
-      valuationEur: valuation
-        ? row.position.quantity * valuation.unitPriceEur
-        : null,
+      valuationEur,
+      marketOrCostEur: valuationEur ?? row.position.totalCostEur,
+      valuedAtCost: valuationEur == null,
     };
   });
 }

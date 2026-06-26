@@ -176,6 +176,13 @@
       "when": 1781780656944,
       "tag": "0024_steep_madelyne_pryor",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1782481510735,
+      "tag": "0025_absurd_warstar",
+      "breakpoints": true
     }
   ]
 }

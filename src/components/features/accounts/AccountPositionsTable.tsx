@@ -58,33 +58,33 @@ export function AccountPositionsTable({ rows }: { rows: PositionRow[] }) {
             key: "value",
             header: "Posición",
             align: "right",
-            cell: (r) =>
-              r.valuationEur == null ? (
-                <span className="text-muted-foreground">—</span>
-              ) : (
-                <div className="flex flex-col items-end leading-tight">
-                  <SensitiveValue className="tabular-nums">
-                    {formatEur(r.valuationEur)}
-                  </SensitiveValue>
+            cell: (r) => (
+              <div className="flex flex-col items-end leading-tight">
+                <SensitiveValue className="tabular-nums">
+                  {formatEur(r.marketOrCostEur)}
+                </SensitiveValue>
+                {r.valuedAtCost ? (
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    a coste
+                  </span>
+                ) : (
                   <SensitiveValue className="text-xs tabular-nums text-muted-foreground">
-                    {formatEur(r.valuationEur / r.position.quantity, {
+                    {formatEur(r.marketOrCostEur / r.position.quantity, {
                       maximumFractionDigits: 4,
                     })}
                   </SensitiveValue>
-                </div>
-              ),
+                )}
+              </div>
+            ),
           },
           {
             key: "pnl",
             header: "Plusvalía",
             align: "right",
             cell: (r) => {
-              if (r.valuationEur == null) {
-                return <span className="text-muted-foreground">—</span>;
-              }
-              // Stored cost pool, not quantity × pre-rounded average — keeps
-              // this table in lockstep with overview and statement.
-              const pnl = r.valuationEur - r.position.totalCostEur;
+              // Carried at cost until a market price exists → P/L 0, not -100%.
+              // Stored cost pool keeps this in lockstep with overview/statement.
+              const pnl = r.marketOrCostEur - r.position.totalCostEur;
               const color =
                 pnl > 0 ? "text-success" : pnl < 0 ? "text-destructive" : "";
               const pct =

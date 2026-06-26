@@ -1,9 +1,11 @@
 import { db } from "../../../../db/client";
-import { coingeckoProvider } from "../../../../lib/pricing";
+import { coingeckoProvider, ftProvider } from "../../../../lib/pricing";
 import { withRetry } from "../../../../lib/pricing/_net";
 import {
   backfillCryptoPrices,
   backfillCryptoValuations,
+  backfillFundPrices,
+  backfillFundValuations,
 } from "../../../../lib/price-backfill";
 
 // Audit R3: single-process in-flight guard — see sync-prices route.
@@ -28,7 +30,18 @@ async function handle(req: Request): Promise<Response> {
         withRetry(() => coingeckoProvider.fetchHistory(symbol, from, to)),
     });
     const valuations = await backfillCryptoValuations(db);
-    return Response.json({ ok: true, prices, valuations });
+    const fundPrices = await backfillFundPrices(db, {
+      fetchHistory: (symbol, from, to) =>
+        withRetry(() => ftProvider.fetchHistory(symbol, from, to)),
+    });
+    const fundValuations = await backfillFundValuations(db);
+    return Response.json({
+      ok: true,
+      prices,
+      valuations,
+      fundPrices,
+      fundValuations,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ ok: false, error: message }, { status: 500 });

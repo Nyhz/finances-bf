@@ -109,8 +109,13 @@ describe("e2e — cron price sync (syncPrices)", () => {
         throw new Error("no crypto assets in this test");
       }),
     };
+    const ft = {
+      fetchQuote: vi.fn(async () => {
+        throw new Error("no FT assets in this test");
+      }),
+    };
 
-    const summary = await syncPrices(db, { yahoo, coingecko });
+    const summary = await syncPrices(db, { yahoo, coingecko, ft });
     expect(summary.errors).toEqual([]);
     expect(summary.fetched).toBe(2); // ASML + AAPL
     expect(summary.fxFetched).toBeGreaterThan(0); // USD rate fetched

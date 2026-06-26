@@ -77,19 +77,22 @@ export function TopPositionsTable({ rows }: { rows: TopPositionRow[] }) {
             key: "value",
             header: "Posición",
             align: "right",
-            cell: (r) =>
-              r.position.valuationEur == null ? (
-                <span className="text-muted-foreground">—</span>
-              ) : (
-                <div className="flex flex-col items-end leading-tight">
-                  <SensitiveValue className="tabular-nums">
-                    {formatEur(r.position.valuationEur)}
-                  </SensitiveValue>
+            cell: (r) => (
+              <div className="flex flex-col items-end leading-tight">
+                <SensitiveValue className="tabular-nums">
+                  {formatEur(r.position.marketOrCostEur)}
+                </SensitiveValue>
+                {r.position.valuedAtCost ? (
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    a coste
+                  </span>
+                ) : (
                   <SensitiveValue className="text-xs tabular-nums text-muted-foreground">
                     {formatUnit(r.unitPriceEur)}
                   </SensitiveValue>
-                </div>
-              ),
+                )}
+              </div>
+            ),
           },
           {
             key: "pnl",

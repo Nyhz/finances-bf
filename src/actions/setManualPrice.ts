@@ -12,6 +12,7 @@ import {
   type PriceHistoryRow,
 } from "../db/schema";
 import { rebuildValuationsForAsset } from "../server/valuations";
+import { priceSymbolForAsset } from "../lib/price-sync";
 import {
   FxUnavailableError,
   resolveFxRateSync,
@@ -48,7 +49,9 @@ export async function setManualPrice(
     if (!asset) {
       return { ok: false, error: { code: "not_found", message: "activo no encontrado" } };
     }
-    const symbol = asset.providerSymbol ?? asset.symbol ?? asset.ticker;
+    // Same symbol the sync/backfill/valuation-rebuild use (FT → ISIN:CURRENCY)
+    // so a manual price lands in the asset's one price-history series.
+    const symbol = priceSymbolForAsset(asset);
     if (!symbol) {
       return {
         ok: false,

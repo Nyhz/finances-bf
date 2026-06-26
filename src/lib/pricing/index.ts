@@ -1,6 +1,7 @@
 import type { Asset } from "../../db/schema";
 import * as yahoo from "./yahoo";
 import * as coingecko from "./coingecko";
+import * as ft from "./ft";
 import * as justetf from "./justetf";
 import type { HistoricalBar, Quote } from "./types";
 
@@ -12,7 +13,7 @@ export type {
   SectorWeight,
 } from "./types";
 
-export type PricingProviderName = "yahoo" | "coingecko";
+export type PricingProviderName = "yahoo" | "coingecko" | "ft";
 
 export type PricingProvider = {
   name: PricingProviderName;
@@ -37,9 +38,20 @@ export const coingeckoProvider: PricingProvider = {
   fetchHistory: coingecko.fetchHistory,
 };
 
+export const ftProvider: PricingProvider = {
+  name: "ft",
+  fetchQuote: ft.fetchQuote,
+  fetchQuotes: ft.fetchQuotes,
+  fetchHistory: ft.fetchHistory,
+};
+
 export function providerForAsset(
-  asset: Pick<Asset, "assetType">,
+  asset: Pick<Asset, "assetType" | "priceSource">,
 ): PricingProvider {
+  // Explicit per-asset override wins (e.g. money-market funds → FT).
+  if (asset.priceSource === "ft") return ftProvider;
+  if (asset.priceSource === "coingecko") return coingeckoProvider;
+  if (asset.priceSource === "yahoo") return yahooProvider;
   if (asset.assetType === "crypto") return coingeckoProvider;
   return yahooProvider;
 }

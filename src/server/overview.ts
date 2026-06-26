@@ -129,7 +129,10 @@ export async function getOverviewKpis(
   let marketValueEur = 0;
   let investedEur = 0;
   for (const row of positions) {
-    if (row.valuationEur != null) marketValueEur += row.valuationEur;
+    // Carry an unpriced holding at cost (not 0) so it never reads as a -100%
+    // loss before its first market price arrives. Overwritten automatically
+    // once a real valuation exists (`valuationEur` becomes non-null).
+    marketValueEur += row.marketOrCostEur;
     // Stored cost pool, not quantity × pre-rounded average — keeps the KPI
     // in lockstep with the statement page's cost basis.
     investedEur += row.position.totalCostEur;
@@ -528,7 +531,7 @@ export async function getTopPositions(
   }
 
   const totalValue = positions.reduce(
-    (acc, p) => acc + (p.valuationEur ?? 0),
+    (acc, p) => acc + p.marketOrCostEur,
     0,
   );
 
@@ -649,25 +652,25 @@ export async function getTopPositions(
   }
 
   const enriched: TopPositionRow[] = positions.map((p) => {
-    const valuationEur = p.valuationEur ?? 0;
-    const weight = totalValue > 0 ? valuationEur / totalValue : 0;
+    // Unpriced holdings are carried at cost, so P/L is computed against the
+    // same value (→ 0, not -100%). Once a market price exists it takes over.
+    const valueEur = p.marketOrCostEur;
+    const weight = totalValue > 0 ? valueEur / totalValue : 0;
     const costBasisEur = p.position.totalCostEur;
     const sparkline = valuationsByAsset.get(p.position.assetId) ?? [];
 
-    let pnlEur: number | null = null;
-    let pnlPct: number | null = null;
-    if (p.valuationEur != null) {
-      if (filters.range === "ALL") {
-        pnlEur = p.valuationEur - costBasisEur;
-        pnlPct = costBasisEur > 0 ? pnlEur / costBasisEur : null;
-      } else {
-        const startValue = startValueByAsset.get(p.position.assetId) ?? 0;
-        const contributions =
-          contribsInRangeByAsset.get(p.position.assetId) ?? 0;
-        pnlEur = p.valuationEur - startValue - contributions;
-        const base = startValue + Math.max(contributions, 0);
-        pnlPct = base > 0 ? pnlEur / base : null;
-      }
+    let pnlEur: number;
+    let pnlPct: number | null;
+    if (filters.range === "ALL") {
+      pnlEur = valueEur - costBasisEur;
+      pnlPct = costBasisEur > 0 ? pnlEur / costBasisEur : null;
+    } else {
+      const startValue = startValueByAsset.get(p.position.assetId) ?? 0;
+      const contributions =
+        contribsInRangeByAsset.get(p.position.assetId) ?? 0;
+      pnlEur = valueEur - startValue - contributions;
+      const base = startValue + Math.max(contributions, 0);
+      pnlPct = base > 0 ? pnlEur / base : null;
     }
 
     return {
@@ -683,7 +686,7 @@ export async function getTopPositions(
 
   return enriched
     .filter((r) => r.position.position.quantity > 0)
-    .sort((a, b) => (b.position.valuationEur ?? 0) - (a.position.valuationEur ?? 0))
+    .sort((a, b) => b.position.marketOrCostEur - a.position.marketOrCostEur)
     .slice(0, limit);
 }
 

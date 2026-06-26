@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ASSET_TYPES } from "./_shared";
+import { PRICE_SOURCES } from "../lib/domain";
 
 const currencyCode = z
   .string()
@@ -26,7 +27,19 @@ export const createAssetSchema = z.object({
     .optional(),
   exchange: z.string().trim().max(32).nullable().optional(),
   providerSymbol: z.string().trim().max(64).nullable().optional(),
+  // null = pick provider by type (crypto → CoinGecko, else Yahoo). Set
+  // "ft" for funds priced by ISIN that Yahoo can't quote.
+  priceSource: z.enum(PRICE_SOURCES).nullable().optional(),
   isActive: z.boolean().default(true),
+}).superRefine((data, ctx) => {
+  // FT is looked up by ISIN, so it's useless without one.
+  if (data.priceSource === "ft" && !data.isin) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["isin"],
+      message: "El ISIN es obligatorio para precios de Financial Times",
+    });
+  }
 });
 
 export type CreateAssetInput = z.input<typeof createAssetSchema>;

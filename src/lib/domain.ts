@@ -22,6 +22,18 @@ export const ASSET_TYPES = [
 ] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
+// Market-data provider the daily price sync uses for an asset. `null` on the
+// asset row means "pick by type" (crypto → CoinGecko, else Yahoo); an explicit
+// value overrides that. FT prices European mutual funds (NAV + history) by ISIN.
+export const PRICE_SOURCES = ["yahoo", "coingecko", "ft"] as const;
+export type PriceSource = (typeof PRICE_SOURCES)[number];
+
+export const PRICE_SOURCE_LABELS: Record<PriceSource, string> = {
+  yahoo: "Yahoo Finance",
+  coingecko: "CoinGecko",
+  ft: "Financial Times (fondos, por ISIN)",
+};
+
 export const ACCOUNT_TYPES = [
   "broker",
   "crypto",

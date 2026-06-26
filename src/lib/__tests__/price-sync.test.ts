@@ -36,8 +36,9 @@ function fakeClient(
 function asClients(
   yahoo: PriceClient,
   coingecko: PriceClient = fakeClient({}),
+  ft: PriceClient = fakeClient({}),
 ): PriceClients {
-  return { yahoo, coingecko };
+  return { yahoo, coingecko, ft };
 }
 
 describe("syncPrices", () => {
@@ -61,6 +62,56 @@ describe("syncPrices", () => {
       errors: [],
     });
     expect(client.fetchQuote).not.toHaveBeenCalled();
+  });
+
+  it("routes a priceSource=ft asset to the ft client, keyed by ISIN:CURRENCY", async () => {
+    await db.insert(schema.assets).values({
+      id: "ast_ft",
+      name: "Groupama Trésorerie IC",
+      assetType: "fund",
+      symbol: "GROUPAMA",
+      isin: "FR0000989626",
+      priceSource: "ft",
+      currency: "EUR",
+      isActive: true,
+    }).run();
+    await db.insert(schema.assetPositions).values({
+      id: "pos_ft",
+      assetId: "ast_ft",
+      quantity: 2,
+      averageCost: 44000,
+    }).run();
+
+    const yahoo = fakeClient({});
+    const ft = fakeClient({
+      "FR0000989626:EUR": { price: 44339.26, currency: "EUR" },
+    });
+    const summary = await syncPrices(
+      db,
+      asClients(yahoo, fakeClient({}), ft),
+      today,
+    );
+
+    expect(summary.fetched).toBe(1);
+    expect(summary.errors).toEqual([]);
+    expect(ft.fetchQuote).toHaveBeenCalledWith("FR0000989626:EUR");
+    expect(yahoo.fetchQuote).not.toHaveBeenCalled();
+
+    const priceRow = await db
+      .select()
+      .from(schema.priceHistory)
+      .where(eq(schema.priceHistory.symbol, "FR0000989626:EUR"))
+      .get();
+    expect(priceRow?.source).toBe("ft");
+    expect(priceRow?.price).toBe(44339.26);
+
+    const valuation = await db
+      .select()
+      .from(schema.assetValuations)
+      .where(eq(schema.assetValuations.assetId, "ast_ft"))
+      .get();
+    expect(valuation?.unitPriceEur).toBe(44339.26);
+    expect(valuation?.priceSource).toBe("ft");
   });
 
   it("fetches prices, FX, and valuations; second call same day is idempotent", async () => {
@@ -177,7 +228,7 @@ describe("syncPrices", () => {
       binancecoin: { price: 650, currency: "EUR" },
     });
 
-    const summary = await syncPrices(db, { yahoo, coingecko }, today);
+    const summary = await syncPrices(db, { yahoo, coingecko, ft: fakeClient({}) }, today);
     expect(summary.fetched).toBe(1);
     expect(summary.fxFetched).toBe(0);
     expect(summary.valuationsUpserted).toBe(1);
@@ -211,7 +262,7 @@ describe("syncPrices", () => {
     }).run();
     const summary = await syncPrices(
       db,
-      { yahoo: fakeClient({}), coingecko: fakeClient({}) },
+      { yahoo: fakeClient({}), coingecko: fakeClient({}), ft: fakeClient({}) },
       today,
     );
     expect(summary.fetched).toBe(0);

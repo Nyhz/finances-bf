@@ -14,6 +14,11 @@ export const assets = sqliteTable(
     isin: text("isin"),
     exchange: text("exchange"),
     providerSymbol: text("provider_symbol"),
+    /** Overrides which market-data provider the daily sync uses for this asset.
+     *  null = pick by type (crypto → CoinGecko, else Yahoo). Set explicitly for
+     *  instruments the default can't price — e.g. "ft" (Financial Times) for
+     *  European mutual funds, looked up by ISIN. See price-sync. */
+    priceSource: text("price_source"),
     currency: text("currency").notNull().default("EUR"),
     /** Total Expense Ratio as an annual percentage (e.g. 0.22 = 0.22%/year).
      *  Manual entry per fund/ETF; null for instruments without a TER (stocks,

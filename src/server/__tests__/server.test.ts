@@ -46,6 +46,48 @@ describe("server read layer — fresh DB", () => {
   });
 });
 
+describe("getOverviewKpis — cost fallback for unpriced positions", () => {
+  let db: DB;
+  beforeEach(() => {
+    db = makeDb();
+  });
+
+  it("values a held position with no valuation at cost (no fake -100%)", async () => {
+    db.insert(schema.accounts)
+      .values({ id: "acc_mi", name: "MyInvestor", accountType: "investment", currency: "EUR" })
+      .run();
+    db.insert(schema.assets)
+      .values({
+        id: "ast_grp",
+        name: "Groupama Trésorerie IC",
+        assetType: "fund",
+        symbol: "GROUPAMA",
+        isin: "FR0000989626",
+        priceSource: "ft",
+        currency: "EUR",
+        isActive: true,
+      })
+      .run();
+    db.insert(schema.assetPositions)
+      .values({
+        id: "pos_grp",
+        assetId: "ast_grp",
+        quantity: 0.1736,
+        averageCost: 44339.285714,
+        totalCostEur: 7697.3,
+      })
+      .run();
+    // No asset_valuations row → was previously valued at 0 → -100%.
+
+    const kpis = await getOverviewKpis({ range: "ALL" }, db);
+    expect(kpis.investedEur).toBeCloseTo(7697.3, 2);
+    expect(kpis.investedMarketValueEur).toBeCloseTo(7697.3, 2);
+    expect(kpis.totalNetWorthEur).toBeCloseTo(7697.3, 2);
+    expect(kpis.unrealizedPnlEur).toBeCloseTo(0, 2);
+    expect(kpis.unrealizedPnlPct ?? 0).toBeCloseTo(0, 6);
+  });
+});
+
 describe("listTransactions — cursor round-trip", () => {
   it("paginates by tradedAt desc and accepts its own nextCursor", async () => {
     const db = makeDb();

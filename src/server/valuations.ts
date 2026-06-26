@@ -9,6 +9,7 @@ import {
   priceHistory,
 } from "../db/schema";
 import { round } from "../lib/money";
+import { priceSymbolForAsset } from "../lib/price-sync";
 import { DAY_MS, isWeekday, toIsoDate } from "../lib/time";
 
 
@@ -75,7 +76,9 @@ export function rebuildValuationsForAsset(
     tx.delete(assetValuations).where(eq(assetValuations.assetId, assetId)).run();
   }
 
-  const symbol = (asset.providerSymbol ?? asset.symbol ?? "").trim();
+  // Must match the symbol every price writer (sync, backfill, manual) uses —
+  // for FT funds that's `ISIN:CURRENCY`, not the plain `symbol` label.
+  const symbol = priceSymbolForAsset(asset);
   if (!symbol) return;
 
   const prices = tx
